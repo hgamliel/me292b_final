@@ -4,7 +4,7 @@ function tau = contact_force_control(s, model)
 
     % model parameters
     m = model.M;            % robot mass [kg]
-    g = [0; 0; -9.81];      % acceleration due to gravity [m/s^2]
+    g = [0; 0; 9.81];       % acceleration due to gravity [m/s^2]
 
     % COM positions and body orientations
     rc_d = [-0.0103; 0; 0.8894];
@@ -33,12 +33,12 @@ function tau = contact_force_control(s, model)
     % 2) contact forces to produce desired wrench
     Gc = contact_grasp_map(s, model, rc);
 
-    n = 10;                             % friction cone pyramid, # sides           
+    n = 4;                              % friction cone pyramid, # sides           
     nj_mat = nj_matrix(n);              % friction cone normal vectors
 
     H = 2*eye(12); f = zeros(12,1);     % minimize ||fc||^2
-    A = zeros(12,1); A(3:3:end) = -1; A = diag(A);
-    b = zeros(12,1);                    % unilateral constraint fi_z >= 0
+    A = zeros(4,12); A(sub2ind(size(A),1:4,3:3:12)) = -1;
+    b = zeros(4,1);                     % unilateral constraint fi_z >= 0
     A = [A; -nj_mat];
     b = [b; zeros(n*4,1)];              % friction cone constraint
     Aeq = Gc; beq = F_d;                % F_d = Gc*fc
@@ -143,7 +143,7 @@ function nj_mat = nj_matrix(n)
     for i = 1:4
         ind_i = i + 2*(i-1);
         for j = 1:n
-            ind_j = j + 10*(i-1);
+            ind_j = j + n*(i-1);
             % dot(fi,nij) = |fi| |nij| cos(theta) >= 0
                 % where theta is the angle between fi and nij
                 % if    theta <= 90 deg     then cos(theta) >= 0
