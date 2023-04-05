@@ -15,14 +15,14 @@ function tau = contact_force_control(s, model)
     [rc, drc] = computeComPosVel(q, dq, model);
     yaw = q(4); pitch = q(5); roll = q(6);
     R = euler_to_rotm(yaw,pitch,roll);
+    R = R';
     Omega = [dq(4); dq(5); dq(6)];
 
-    % 1) stabilizing wrench at COM
+    %% 1) stabilizing wrench at COM
     Kp = 500; Kd = 100;     % proportional and differential gain
     f_d = -Kp*(rc - rc_d) - Kd*(drc - drc_d) + m*g;     % + m*ddrc_d;
 
     Kr = 100; Dr = 50;      % rotational stiffness and damping
-        % tau_d = -Kr*error(R,R_d) - Dr*(Omega - Omega_d); % + I*dOmega_d;
     quat = euler_to_quaternion(yaw,pitch,roll);
     delta = quat(1); epsilon = quat(2:4); Rdb = R_d'*R;
     tau_r = -2*(delta*eye(3) + hat(epsilon))*Kr*epsilon;
@@ -30,25 +30,36 @@ function tau = contact_force_control(s, model)
 
     F_d = [f_d; tau_d];
 
-    % 2) contact forces to produce desired wrench
+    %% 2) contact forces to produce desired wrench
     Gc = contact_grasp_map(s, model, rc);
 
     n = 4;                              % friction cone pyramid, # sides           
     nj_mat = nj_matrix(n);              % friction cone normal vectors
 
-    H = 2*eye(12); f = zeros(12,1);     % minimize ||fc||^2
     A = zeros(4,12); A(sub2ind(size(A),1:4,3:3:12)) = -1;
     b = zeros(4,1);                     % unilateral constraint fi_z >= 0
     A = [A; -nj_mat];
     b = [b; zeros(n*4,1)];              % friction cone constraint
-    Aeq = Gc; beq = F_d;                % F_d = Gc*fc
+    Aeq = []; beq = [];
+    % instead of using equality constraint (Aeq*x = beq; Gc*fc = F_d),
+    % add ||F_d - Gc*fc||^2 to the cost function with weights prioritizing:
+    % minimizing ||fc||^2 << getting correct tau_d << getting correct f_d
+    a1 = 10; a2 = 1; a3 = 0.1;          % a3 << a2 << a1
+    A1 = [eye(3) zeros(3)];             % extract forces:  [I 0] ||F_d - Gc*fc||^2
+    A2 = [zeros(3) eye(3)];             % extract torques: [0 I] ||F_d - Gc*fc||^2
+    Gc1 = A1*Gc; F_d1 = A1*F_d; Gc2 = A2*Gc; F_d2 = A2*F_d; 
+    H = Gc1'*Gc1*2*a1 + Gc2'*Gc2*2*a2 + a3*2*eye(12);
+    f = (-2*a1*F_d1'*Gc1)' + (-2*a2*F_d2'*Gc2)' + a3*zeros(12,1);
     lb = []; ub = []; x0 = [];
     options =  optimset('TolCon',1e3,'Display','off');
+    % options =  optimset('TolCon',1e3);
+    options =  optimset('Display','off');
     fc = quadprog(H,f,A,b,Aeq,beq,...
         lb,ub,x0,options);              % min 0.5*x'*H*x + f'*x
+    % fc = Gc\F_d;                        % TRY THIS BY ITSELF FOR DEBUGGING
 
-    % 3) motor torques to produce desired contact forces
-    [J1f, J1b, J2f, J2b] = computeFootJacobians(s, model);
+    %% 3) motor torques to produce desired contact forces
+    [J1f, J1b, J2f, J2b] = compute_foot_Jacobians(s, model);
     J = {J1f J1b J2f J2b};
     % A = zeros(20,1); A([7:14 19:20]) = 1; A = diag(A);
     % A = [A(7:14,:); A(19:20,:)];        % to select actuated joint angles
@@ -60,9 +71,10 @@ function tau = contact_force_control(s, model)
         % coordinate transformation: T*q + d
         % inv(T')*D*inv(T); inv(T')*C*inv(T); inv(T')*G; inv(T')*B;
         % but T = I if only change is translating q(1:3) from hip to COM
+        % T not identity, COM is a function of other q, redefine q to calc COM
         Jbar = J{i};
         Jtilde = A*Jbar';
-        tau = tau + -Jtilde * [fc(ind:ind+2); zeros(3,1)];
+        tau = tau + -Jtilde * [fc(ind:ind+2)];
     end
 end
 
@@ -87,11 +99,11 @@ function quat = euler_to_quaternion(yaw, pitch, roll)
     quat = [qw; qx; qy; qz];        % quat = w + xi + yj + zk
 end
 
-% computes vector error between rotation matrices
+% [unused] computes vector error between rotation matrices
 % https://stackoverflow.com/questions/6522108/error-between-two-rotations
-function err = error(R, Rdes)
-    err = rotmat2vec3d(R*Rdes')';
-end
+% function err = error(R, Rdes)
+%     err = rotmat2vec3d(R*Rdes')';
+% end
 
 % computes contact grasp map
 function Gc = contact_grasp_map(s, model, rc)
@@ -109,9 +121,8 @@ end
 
 % computes hat map of vector
 function x_hat = hat(x)
-    x_hat = [    0 -x(3)  x(2);
-              x(3)    0  -x(1);
-             -x(2)  x(1)     0];
+    % x_hat = [0 -x(3) x(2); x(3) 0 -x(1); -x(2) x(1) 0];
+    x_hat = skew(x);
 end
 
 % computes normal vectors for friction cone pyramid approximation
@@ -141,14 +152,32 @@ function nj_mat = nj_matrix(n)
     nj = pyramid(n);                    % friction cone normal vectors
     nj_mat = zeros(n*4,3*4);            % 4 contact points
     for i = 1:4
-        ind_i = i + 2*(i-1);
-        for j = 1:n
-            ind_j = j + n*(i-1);
-            % dot(fi,nij) = |fi| |nij| cos(theta) >= 0
-                % where theta is the angle between fi and nij
-                % if    theta <= 90 deg     then cos(theta) >= 0
-                % if    theta  > 90 deg     then cos(theta)  < 0
-            nj_mat(ind_j,ind_i:ind_i+2) = nj(:,j);
-        end
+        ind_j = i + 2*(i-1);
+        ind_i = n*(i-1) + 1;
+        % dot(fi,nij) = |fi| |nij| cos(theta) >= 0
+            % where theta is the angle between fi and nij
+            % if    theta <= 90 deg     then cos(theta) >= 0
+            % if    theta  > 90 deg     then cos(theta)  < 0
+        nj_mat(ind_i:ind_i+n-1, ind_j:ind_j+2) = nj';
     end
+end
+
+% compute 3 x (20 - 4) foot Jacobians (last 10 = actuated joints)
+function [J1f, J1b, J2f, J2b] = compute_foot_Jacobians(s, model)
+    q = s(1:20);
+    dq = s(21:40);
+    
+    [~, ~, G] = model.gamma_q(model, q, dq) ;
+     
+    [J1f, ~] = bodyJac_vel(model, model.idx.foot1, q, xlt(model.p1)) ;
+    J1f = J1f*G;
+    
+    [J1b, ~] = bodyJac_vel(model, model.idx.foot1, q, xlt(model.p2)) ;
+    J1b = J1b*G;
+    
+    [J2f, ~] = bodyJac_vel(model, model.idx.foot2, q, xlt(model.p1)) ;
+    J2f = J2f*G;
+    
+    [J2b, ~] = bodyJac_vel(model, model.idx.foot2, q, xlt(model.p2)) ;
+    J2b = J2b*G;
 end
