@@ -18,7 +18,7 @@ function tau = contact_force_control(s, model)
     R = R';
     Omega = [dq(4); dq(5); dq(6)];
 
-    %% 1) stabilizing wrench at COM
+    %% 1) stabilizing wrench at COM (F_d)
     Kp = 500; Kd = 100;     % proportional and differential gain
     f_d = -Kp*(rc - rc_d) - Kd*(drc - drc_d) + m*g;     % + m*ddrc_d;
 
@@ -26,11 +26,14 @@ function tau = contact_force_control(s, model)
     quat = euler_to_quaternion(yaw,pitch,roll);
     delta = quat(1); epsilon = quat(2:4); Rdb = R_d'*R;
     tau_r = -2*(delta*eye(3) + hat(epsilon))*Kr*epsilon;
+    % error definition 1: quaternion
     tau_d = Rdb*(tau_r - Dr*(Omega - Omega_d));
+    % error definition 2: rotation matrix
+    % tau_d = -Kr*error(R,R_d) - Kd*(Omega - R'*R_d*Omega_d); % + I*dOmega_d
 
     F_d = [f_d; tau_d];
 
-    %% 2) contact forces to produce desired wrench
+    %% 2) contact forces to produce desired wrench (fc)
     Gc = contact_grasp_map(s, model, rc);
 
     n = 4;                              % friction cone pyramid, # sides           
@@ -44,7 +47,7 @@ function tau = contact_force_control(s, model)
     % instead of using equality constraint (Aeq*x = beq; Gc*fc = F_d),
     % add ||F_d - Gc*fc||^2 to the cost function with weights prioritizing:
     % minimizing ||fc||^2 << getting correct tau_d << getting correct f_d
-    a1 = 10; a2 = 1; a3 = 0.1;          % a3 << a2 << a1
+    a1 = 10; a2 = 1; a3 = 0.01;         % a3 << a2 << a1
     A1 = [eye(3) zeros(3)];             % extract forces:  [I 0] ||F_d - Gc*fc||^2
     A2 = [zeros(3) eye(3)];             % extract torques: [0 I] ||F_d - Gc*fc||^2
     Gc1 = A1*Gc; F_d1 = A1*F_d; Gc2 = A2*Gc; F_d2 = A2*F_d; 
@@ -58,22 +61,29 @@ function tau = contact_force_control(s, model)
         lb,ub,x0,options);              % min 0.5*x'*H*x + f'*x
     % fc = Gc\F_d;                        % TRY THIS BY ITSELF FOR DEBUGGING
 
-    %% 3) motor torques to produce desired contact forces
+    %% 3) motor torques to produce desired contact forces (tau)
     [J1f, J1b, J2f, J2b] = compute_foot_Jacobians(s, model);
     J = {J1f J1b J2f J2b};
     % A = zeros(20,1); A([7:14 19:20]) = 1; A = diag(A);
     % A = [A(7:14,:); A(19:20,:)];        % to select actuated joint angles
     A = [zeros(10,6) eye(10)];          % to select actuated joint angles
+    [~,~,G] = model.gamma_q(model,q,dq);
 
     tau = zeros(10,1);
     for i = 1:4
         ind = i + 2*(i-1);
-        % coordinate transformation: T*q + d
-        % inv(T')*D*inv(T); inv(T')*C*inv(T); inv(T')*G; inv(T')*B;
-        % but T = I if only change is translating q(1:3) from hip to COM
-        % T not identity, COM is a function of other q, redefine q to calc COM
-        Jbar = J{i};
-        Jtilde = A*Jbar';
+        % R_ab = [[xb]a [yb]a [zb]a]
+        % adjoint: Ad_gab = [R_ab, hat(p_ab)*R_ab; 0 R_ab]
+        % coordinate transformation: T*q_bar = q
+        Brc = R*rc;                     % COM position in torso/body frame
+        J_rc = COMJac_vel(model,q);     % Jacobian of COM in body frame
+        A_ = [zeros(6,14); eye(14)];
+        J_BC = J_rc*A_;                  % d(rc)/d(joint angles)
+        T = [         R'   hat(R*rc)       -J_BC;
+                zeros(3)      eye(3) zeros(3,14);
+             zeros(14,3) zeros(14,3)     eye(14)];
+        Jbar = J{i}*T;
+        Jtilde = A*(Jbar*G)';
         tau = tau + -Jtilde * [fc(ind:ind+2)];
     end
 end
@@ -100,10 +110,12 @@ function quat = euler_to_quaternion(yaw, pitch, roll)
 end
 
 % [unused] computes vector error between rotation matrices
-% https://stackoverflow.com/questions/6522108/error-between-two-rotations
-% function err = error(R, Rdes)
-%     err = rotmat2vec3d(R*Rdes')';
-% end
+function err = error(R, Rdes)
+    err = 0.5*vee(Rdes'*R - R'*Rdes);
+    function x = vee(x_hat)
+        x = skew(x_hat);
+    end
+end
 
 % computes contact grasp map
 function Gc = contact_grasp_map(s, model, rc)
@@ -111,11 +123,11 @@ function Gc = contact_grasp_map(s, model, rc)
     p = [p1 p2 p3 p4] - rc; % positions of contact points relative to COM
 
     Gc = zeros(6,3*4);
-    Rpo = eye(3);
+    Rpi = eye(3);
     for i = 1:4
         ind = i + 2*(i-1);
-        Gc(1:3,ind:ind+2) = Rpo;
-        Gc(4:6,ind:ind+2) = hat(p(:,i))*Rpo;
+        Gc(1:3,ind:ind+2) = Rpi;
+        Gc(4:6,ind:ind+2) = hat(p(:,i))*Rpi;
     end
 end
 
@@ -170,14 +182,14 @@ function [J1f, J1b, J2f, J2b] = compute_foot_Jacobians(s, model)
     [~, ~, G] = model.gamma_q(model, q, dq) ;
      
     [J1f, ~] = bodyJac_vel(model, model.idx.foot1, q, xlt(model.p1)) ;
-    J1f = J1f*G;
+    % J1f = J1f*G;
     
     [J1b, ~] = bodyJac_vel(model, model.idx.foot1, q, xlt(model.p2)) ;
-    J1b = J1b*G;
+    % J1b = J1b*G;
     
     [J2f, ~] = bodyJac_vel(model, model.idx.foot2, q, xlt(model.p1)) ;
-    J2f = J2f*G;
+    % J2f = J2f*G;
     
     [J2b, ~] = bodyJac_vel(model, model.idx.foot2, q, xlt(model.p2)) ;
-    J2b = J2b*G;
+    % J2b = J2b*G;
 end
