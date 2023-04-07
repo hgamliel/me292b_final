@@ -1,7 +1,4 @@
 function tau = contact_force_control(s, model)
-    global check
-    check = check + 1
-
     % generalized coordinates and velocities
     q = s(1:model.n);
     dq = s(model.n+1:2*model.n);
@@ -65,47 +62,12 @@ function tau = contact_force_control(s, model)
     % fc = Gc\F_d;
 
     %% 3) motor torques to produce desired contact forces (tau)
-    % [J1f, J1b, J2f, J2b] = compute_foot_Jacobians(s, model);
-    % Jk = {J1f J1b J2f J2b};
-    % % A = zeros(20,1); A([7:14 19:20]) = 1; A = diag(A);
-    % % A = [A(7:14,:); A(19:20,:)];        % to select actuated joint angles
-    % A = [zeros(10,6) eye(10)];          % to select actuated joint angles
-    % [~,~,G] = model.gamma_q(model,q,dq);
-    % 
-    % tau = zeros(10,1);
-    % for i = 1:4
-    %     ind = i + 2*(i-1);
-    %     % R_ab = [[xb]a [yb]a [zb]a]
-    %     % adjoint: Ad_gab = [R_ab, hat(p_ab)*R_ab; 0 R_ab]
-    %     % coordinate transformation: dq = T*dq_bar
-    %     rc_B = Rb*rc;                     % COM position in torso/body frame
-    %     J_rc = COMJac_vel(model,q);      % Jacobian of COM in body frame
-    %     temp = [zeros(6,14); eye(14)];
-    %     J_BC = J_rc*temp;               % d(rc)/d(joint angles)
-    %     T = [         Rb'   hat(rc_B)       -J_BC;
-    %             zeros(3)      eye(3) zeros(3,14);
-    %          zeros(14,3) zeros(14,3)     eye(14)];
-    %     Jbar = Jk{i}*T;
-    %     % Jbar = Jk{i} - (Rk{i}'*R)*J_rc;
-    %     Jtilde = A*(Jbar*G)';
-    %     tau = tau + -Jtilde * [fc(ind:ind+2)];
-    % end
     [J1f, J1b, J2f, J2b] = computeFootJacobians(s, model);
     Jk = {J1f J1b J2f J2b};
-
-    % [R1f, R1b, R2f, R2b, X1f, X1b, X2f, X2b] = compute_foot_orientations(s, model);
-    % % Rk = {R1f R1b R2f R2b};
-    % Xk = {X1f X1b X2f X2b};
-    % J_rc = compute_COM_Jacobian(s, model);
-    % % [~, ~, G] = model.gamma_q(model, q, dq);
-    % % J_rc2 = computeComJacobian(q, model)*G;
 
     tau = zeros(10,1);
     for i = 1:4
         ind = i + 2*(i-1);
-        % % Rkb = Rk{i}'*Rb;
-        % Xkb = Xk{i}'*Xb;
-        % Jk{i} = Jk{i} - Xkb\J_rc;
         Gamma_16 = Jk{i}' * [zeros(3,1); fc(ind:ind+2)];
         tau = tau + -Gamma_16(7:end);
     end
@@ -160,7 +122,7 @@ function quat = rotm_to_quaternion(rotm)
       qy = 0.25*S;
       qz = (m12 + m21) / S; 
     else
-      S = sqrt(1 + m22 - m00 - m11) * 2;                                % S = 4*qz
+      S = sqrt(1 + m22 - m00 - m11) * 2;    % S = 4*qz
       qw = (m10 - m01) / S;
       qx = (m02 + m20) / S;
       qy = (m12 + m21) / S;
@@ -235,59 +197,3 @@ function nj_mat = nj_matrix(n)
         nj_mat(ind_i:ind_i+n-1, ind_j:ind_j+2) = nj';
     end
 end
-
-% % computes 3 x (20 - 4) foot Jacobians (last 10 = actuated joints)
-% function [J1f, J1b, J2f, J2b] = compute_foot_Jacobians(s, model)
-%     q = s(1:model.n);
-%     dq = s(model.n+1:2*model.n);
-% 
-%     [~, ~, G] = model.gamma_q(model, q, dq) ;
-% 
-%     [J1f, ~] = bodyJac_vel(model, model.idx.foot1, q, xlt(model.p1)) ;
-%     % J1f = J1f*G;
-% 
-%     [J1b, ~] = bodyJac_vel(model, model.idx.foot1, q, xlt(model.p2)) ;
-%     % J1b = J1b*G;
-% 
-%     [J2f, ~] = bodyJac_vel(model, model.idx.foot2, q, xlt(model.p1)) ;
-%     % J2f = J2f*G;
-% 
-%     [J2b, ~] = bodyJac_vel(model, model.idx.foot2, q, xlt(model.p2)) ;
-%     % J2b = J2b*G;
-% end
-
-% % computes foot orientations
-% function [R1f, R1b, R2f, R2b, X1f, X1b, X2f, X2b] = compute_foot_orientations(s, model)
-%     q = s(1:model.n);
-%     dq = s(model.n+1:2*model.n);
-% 
-%     X1f = bodypos(model, model.idx.foot1, q, xlt(model.p1));
-%     R1f = X1f(1:3,1:3)';
-% 
-%     X1b = bodypos(model, model.idx.foot1, q, xlt(model.p2));
-%     R1b = X1b(1:3,1:3)';
-% 
-%     X2f = bodypos(model, model.idx.foot2, q, xlt(model.p1));
-%     R2f = X2f(1:3,1:3)';
-% 
-%     X2b = bodypos(model, model.idx.foot2, q, xlt(model.p2));
-%     R2b = X2b(1:3,1:3)';
-% end
-
-% % computes 6 x 16 Jacobian of system COM
-% function J = compute_COM_Jacobian(s, model)
-%     q = s(1:model.n);
-%     dq = s(model.n+1:2*model.n);
-% 
-%     [~, ~, G] = model.gamma_q(model, q, dq);
-% 
-%     mass_sum = 0 ;
-%     J = zeros(6, length(q));
-%     for j = 1:model.NB
-%         [mass com_offset] = mcI_inv(model, j);
-%         mass_sum = mass_sum + mass;
-%         [~, body_COM_jac] = bodyJac_vel(model,j,q,xlt(com_offset));
-%         J = J + mass * body_COM_jac;
-%     end
-%     J = 1/mass_sum * J * G;
-% end
