@@ -1,6 +1,10 @@
 function tau = contact_force_control(s, model)
-    q = s(1:20);
-    dq = s(21:40);
+    global check
+    check = check + 1
+
+    % generalized coordinates and velocities
+    q = s(1:model.n);
+    dq = s(model.n+1:2*model.n);
 
     % model parameters
     m = model.M;            % robot mass [kg]
@@ -14,22 +18,24 @@ function tau = contact_force_control(s, model)
 
     [rc, drc] = computeComPosVel(q, dq, model);
     yaw = q(4); pitch = q(5); roll = q(6);
-    R = euler_to_rotm(yaw,pitch,roll);
-    R = R';
-    Omega = [dq(4); dq(5); dq(6)];
+    Xb = bodypos(model, model.idx.torso, q);
+    Rb = Xb(1:3,1:3)';
+    % Rb = euler_to_rotm([yaw pitch roll])';
+    Jdq = bodyJac(model, model.idx.torso, q)*dq;
+    Omega = Jdq(1:3);
 
     %% 1) stabilizing wrench at COM (F_d)
     Kp = 500; Kd = 100;     % proportional and differential gain
     f_d = -Kp*(rc - rc_d) - Kd*(drc - drc_d) + m*g;     % + m*ddrc_d;
 
     Kr = 100; Dr = 50;      % rotational stiffness and damping
-    quat = euler_to_quaternion(yaw,pitch,roll);
-    delta = quat(1); epsilon = quat(2:4); Rdb = R_d'*R;
+    Rdb = R_d'*Rb; Rwb = Rb;
+    quat = rotm_to_quaternion(Rdb); delta = quat(1); epsilon = quat(2:4);
     tau_r = -2*(delta*eye(3) + hat(epsilon))*Kr*epsilon;
     % error definition 1: quaternion
-    tau_d = Rdb*(tau_r - Dr*(Omega - Omega_d));
+    tau_d = Rwb*(tau_r - Dr*(Omega - Omega_d));
     % error definition 2: rotation matrix
-    % tau_d = -Kr*error(R,R_d) - Kd*(Omega - R'*R_d*Omega_d); % + I*dOmega_d
+    % tau_d = -Kr*error(Rb,R_d) - Kd*(Omega - Rb'*R_d*Omega_d); % + I*dOmega_d
 
     F_d = [f_d; tau_d];
 
@@ -53,51 +59,70 @@ function tau = contact_force_control(s, model)
     Gc1 = A1*Gc; F_d1 = A1*F_d; Gc2 = A2*Gc; F_d2 = A2*F_d; 
     H = Gc1'*Gc1*2*a1 + Gc2'*Gc2*2*a2 + a3*2*eye(12);
     f = (-2*a1*F_d1'*Gc1)' + (-2*a2*F_d2'*Gc2)' + a3*zeros(12,1);
-    lb = []; ub = []; x0 = [];
-    options =  optimset('TolCon',1e3,'Display','off');
-    % options =  optimset('TolCon',1e3);
-    options =  optimset('Display','off');
+    lb = []; ub = []; x0 = []; options =  optimset('Display','off');
     fc = quadprog(H,f,A,b,Aeq,beq,...
         lb,ub,x0,options);              % min 0.5*x'*H*x + f'*x
-    % fc = Gc\F_d;                        % TRY THIS BY ITSELF FOR DEBUGGING
+    % fc = Gc\F_d;
 
     %% 3) motor torques to produce desired contact forces (tau)
-    [J1f, J1b, J2f, J2b] = compute_foot_Jacobians(s, model);
-    J = {J1f J1b J2f J2b};
-    % A = zeros(20,1); A([7:14 19:20]) = 1; A = diag(A);
-    % A = [A(7:14,:); A(19:20,:)];        % to select actuated joint angles
-    A = [zeros(10,6) eye(10)];          % to select actuated joint angles
-    [~,~,G] = model.gamma_q(model,q,dq);
+    % [J1f, J1b, J2f, J2b] = compute_foot_Jacobians(s, model);
+    % Jk = {J1f J1b J2f J2b};
+    % % A = zeros(20,1); A([7:14 19:20]) = 1; A = diag(A);
+    % % A = [A(7:14,:); A(19:20,:)];        % to select actuated joint angles
+    % A = [zeros(10,6) eye(10)];          % to select actuated joint angles
+    % [~,~,G] = model.gamma_q(model,q,dq);
+    % 
+    % tau = zeros(10,1);
+    % for i = 1:4
+    %     ind = i + 2*(i-1);
+    %     % R_ab = [[xb]a [yb]a [zb]a]
+    %     % adjoint: Ad_gab = [R_ab, hat(p_ab)*R_ab; 0 R_ab]
+    %     % coordinate transformation: dq = T*dq_bar
+    %     rc_B = Rb*rc;                     % COM position in torso/body frame
+    %     J_rc = COMJac_vel(model,q);      % Jacobian of COM in body frame
+    %     temp = [zeros(6,14); eye(14)];
+    %     J_BC = J_rc*temp;               % d(rc)/d(joint angles)
+    %     T = [         Rb'   hat(rc_B)       -J_BC;
+    %             zeros(3)      eye(3) zeros(3,14);
+    %          zeros(14,3) zeros(14,3)     eye(14)];
+    %     Jbar = Jk{i}*T;
+    %     % Jbar = Jk{i} - (Rk{i}'*R)*J_rc;
+    %     Jtilde = A*(Jbar*G)';
+    %     tau = tau + -Jtilde * [fc(ind:ind+2)];
+    % end
+    [J1f, J1b, J2f, J2b] = computeFootJacobians(s, model);
+    Jk = {J1f J1b J2f J2b};
+
+    % [R1f, R1b, R2f, R2b, X1f, X1b, X2f, X2b] = compute_foot_orientations(s, model);
+    % % Rk = {R1f R1b R2f R2b};
+    % Xk = {X1f X1b X2f X2b};
+    % J_rc = compute_COM_Jacobian(s, model);
+    % % [~, ~, G] = model.gamma_q(model, q, dq);
+    % % J_rc2 = computeComJacobian(q, model)*G;
 
     tau = zeros(10,1);
     for i = 1:4
         ind = i + 2*(i-1);
-        % R_ab = [[xb]a [yb]a [zb]a]
-        % adjoint: Ad_gab = [R_ab, hat(p_ab)*R_ab; 0 R_ab]
-        % coordinate transformation: T*q_bar = q
-        Brc = R*rc;                     % COM position in torso/body frame
-        J_rc = COMJac_vel(model,q);     % Jacobian of COM in body frame
-        A_ = [zeros(6,14); eye(14)];
-        J_BC = J_rc*A_;                  % d(rc)/d(joint angles)
-        T = [         R'   hat(R*rc)       -J_BC;
-                zeros(3)      eye(3) zeros(3,14);
-             zeros(14,3) zeros(14,3)     eye(14)];
-        Jbar = J{i}*T;
-        Jtilde = A*(Jbar*G)';
-        tau = tau + -Jtilde * [fc(ind:ind+2)];
+        % % Rkb = Rk{i}'*Rb;
+        % Xkb = Xk{i}'*Xb;
+        % Jk{i} = Jk{i} - Xkb\J_rc;
+        Gamma_16 = Jk{i}' * [zeros(3,1); fc(ind:ind+2)];
+        tau = tau + -Gamma_16(7:end);
     end
 end
 
-% computes body orientation from Euler angles
-function R = euler_to_rotm(yaw, pitch, roll)
+% computes body orientation from Euler angles, euler = [yaw pitch roll]
+function R = euler_to_rotm(euler)
+    yaw = euler(1); pitch = euler(2); roll = euler(3);
     Rroll  = @(r) [1 0 0; 0 cos(r) sin(r); 0 -sin(r) cos(r)];
     Rpitch = @(p) [cos(p) 0 -sin(p); 0 1 0; sin(p) 0 cos(p)];
     Ryaw   = @(y) [cos(y) sin(y) 0; -sin(y) cos(y) 0; 0 0 1];
     R = Rroll(roll)*Rpitch(pitch)*Ryaw(yaw);
 end
 
-% computes quaternion from Euler angles
-function quat = euler_to_quaternion(yaw, pitch, roll)
+% computes quaternion from Euler angles, euler = [yaw pitch roll]
+function quat = euler_to_quaternion(euler)
+    yaw = euler(1); pitch = euler(2); roll = euler(3);
     y = yaw; p = pitch; r = roll;   % rotation sequence: yaw-pitch-roll
 
     qx = sin(r/2)*cos(p/2)*cos(y/2) - cos(r/2)*sin(p/2)*sin(y/2);
@@ -109,7 +134,44 @@ function quat = euler_to_quaternion(yaw, pitch, roll)
     quat = [qw; qx; qy; qz];        % quat = w + xi + yj + zk
 end
 
-% [unused] computes vector error between rotation matrices
+% computes quaternion from rotation matrix
+function quat = rotm_to_quaternion(rotm)
+    m00 = rotm(1,1); m01 = rotm(1,2); m02 = rotm(1,3);
+    m10 = rotm(2,1); m11 = rotm(2,2); m12 = rotm(2,3);
+    m20 = rotm(3,1); m21 = rotm(3,2); m22 = rotm(3,3);
+    tr = m00 + m11 + m22;
+
+    if (tr > 0) 
+      S = sqrt(tr + 1) * 2;                 % S = 4*qw 
+      qw = 0.25*S;
+      qx = (m21 - m12) / S;
+      qy = (m02 - m20) / S; 
+      qz = (m10 - m01) / S; 
+    elseif ((m00 > m11) && (m00 > m22))
+      S = sqrt(1 + m00 - m11 - m22) * 2;    % S = 4*qx 
+      qw = (m21 - m12) / S;
+      qx = 0.25*S;
+      qy = (m01 + m10) / S; 
+      qz = (m02 + m20) / S; 
+    elseif (m11 > m22)
+      S = sqrt(1 + m11 - m00 - m22) * 2;    % S = 4*qy
+      qw = (m02 - m20) / S;
+      qx = (m01 + m10) / S; 
+      qy = 0.25*S;
+      qz = (m12 + m21) / S; 
+    else
+      S = sqrt(1 + m22 - m00 - m11) * 2;                                % S = 4*qz
+      qw = (m10 - m01) / S;
+      qx = (m02 + m20) / S;
+      qy = (m12 + m21) / S;
+      qz = 0.25*S;
+    end
+
+    % qw = scalar component, [qx; qy; qz] = vector component
+    quat = [qw; qx; qy; qz];                % quat = w + xi + yj + zk
+end
+
+% computes vector error between rotation matrices
 function err = error(R, Rdes)
     err = 0.5*vee(Rdes'*R - R'*Rdes);
     function x = vee(x_hat)
@@ -174,22 +236,58 @@ function nj_mat = nj_matrix(n)
     end
 end
 
-% compute 3 x (20 - 4) foot Jacobians (last 10 = actuated joints)
-function [J1f, J1b, J2f, J2b] = compute_foot_Jacobians(s, model)
-    q = s(1:20);
-    dq = s(21:40);
-    
-    [~, ~, G] = model.gamma_q(model, q, dq) ;
-     
-    [J1f, ~] = bodyJac_vel(model, model.idx.foot1, q, xlt(model.p1)) ;
-    % J1f = J1f*G;
-    
-    [J1b, ~] = bodyJac_vel(model, model.idx.foot1, q, xlt(model.p2)) ;
-    % J1b = J1b*G;
-    
-    [J2f, ~] = bodyJac_vel(model, model.idx.foot2, q, xlt(model.p1)) ;
-    % J2f = J2f*G;
-    
-    [J2b, ~] = bodyJac_vel(model, model.idx.foot2, q, xlt(model.p2)) ;
-    % J2b = J2b*G;
-end
+% % computes 3 x (20 - 4) foot Jacobians (last 10 = actuated joints)
+% function [J1f, J1b, J2f, J2b] = compute_foot_Jacobians(s, model)
+%     q = s(1:model.n);
+%     dq = s(model.n+1:2*model.n);
+% 
+%     [~, ~, G] = model.gamma_q(model, q, dq) ;
+% 
+%     [J1f, ~] = bodyJac_vel(model, model.idx.foot1, q, xlt(model.p1)) ;
+%     % J1f = J1f*G;
+% 
+%     [J1b, ~] = bodyJac_vel(model, model.idx.foot1, q, xlt(model.p2)) ;
+%     % J1b = J1b*G;
+% 
+%     [J2f, ~] = bodyJac_vel(model, model.idx.foot2, q, xlt(model.p1)) ;
+%     % J2f = J2f*G;
+% 
+%     [J2b, ~] = bodyJac_vel(model, model.idx.foot2, q, xlt(model.p2)) ;
+%     % J2b = J2b*G;
+% end
+
+% % computes foot orientations
+% function [R1f, R1b, R2f, R2b, X1f, X1b, X2f, X2b] = compute_foot_orientations(s, model)
+%     q = s(1:model.n);
+%     dq = s(model.n+1:2*model.n);
+% 
+%     X1f = bodypos(model, model.idx.foot1, q, xlt(model.p1));
+%     R1f = X1f(1:3,1:3)';
+% 
+%     X1b = bodypos(model, model.idx.foot1, q, xlt(model.p2));
+%     R1b = X1b(1:3,1:3)';
+% 
+%     X2f = bodypos(model, model.idx.foot2, q, xlt(model.p1));
+%     R2f = X2f(1:3,1:3)';
+% 
+%     X2b = bodypos(model, model.idx.foot2, q, xlt(model.p2));
+%     R2b = X2b(1:3,1:3)';
+% end
+
+% % computes 6 x 16 Jacobian of system COM
+% function J = compute_COM_Jacobian(s, model)
+%     q = s(1:model.n);
+%     dq = s(model.n+1:2*model.n);
+% 
+%     [~, ~, G] = model.gamma_q(model, q, dq);
+% 
+%     mass_sum = 0 ;
+%     J = zeros(6, length(q));
+%     for j = 1:model.NB
+%         [mass com_offset] = mcI_inv(model, j);
+%         mass_sum = mass_sum + mass;
+%         [~, body_COM_jac] = bodyJac_vel(model,j,q,xlt(com_offset));
+%         J = J + mass * body_COM_jac;
+%     end
+%     J = 1/mass_sum * J * G;
+% end

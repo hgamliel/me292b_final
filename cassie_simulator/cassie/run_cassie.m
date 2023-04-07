@@ -20,6 +20,7 @@ function run_cassie()
 
     % ODE options
     time_inter = [0 5] ;
+    time_inter = 0:2.5:5;
     odeopts = odeset('Events', @falldetect);
     externalForce_fun = @ExternalForce ;
     % Add any student-requested Integrators
