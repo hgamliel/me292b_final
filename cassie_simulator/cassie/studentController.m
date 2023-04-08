@@ -22,6 +22,6 @@ function tau = studentController(t, s, model, params)
     q0 = x0(1:model.n) ;
     % tau = -kp*(q(model.actuated_idx)-q0(model.actuated_idx)) - kd*dq(model.actuated_idx) ;
 
-    %% Contact Force Control
+    %% [Control #3] Contact Force Control
     tau = contact_force_control(s, model);
 end

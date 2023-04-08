@@ -23,11 +23,12 @@ function tau = contact_force_control(s, model)
 
     %% 1) stabilizing wrench at COM (F_d)
     Kp = 500; Kd = 100;     % proportional and differential gain
-    kh = 900; kv = 3000; Kp = diag([kh kh kv]);
-    dh = sqrt(m*kh)*2*0.8; dv = sqrt(m*kv)*2*0.2; Kd = diag([dh dh dv]);
+    kh = 900; kv = 3000; Kp = diag(kh,kh,kv);
+    dh = sqrt(m*kh)*0.8; dv = sqrt(m*kv)*0.2; Kd = diag(dh,dh,dv);
     f_d = -Kp*(rc - rc_d) - Kd*(drc - drc_d) + m*g;     % + m*ddrc_d;
 
     Kr = 100; Dr = 50;      % rotational stiffness and damping
+    Kr = 100*eye(3); Dr = 50;      % rotational stiffness and damping
     Rdb = R_d'*Rb; Rwb = Rb;
     quat = rotm_to_quaternion(Rdb); delta = quat(1); epsilon = quat(2:4);
     tau_r = -2*(delta*eye(3) + hat(epsilon))*Kr*epsilon;
