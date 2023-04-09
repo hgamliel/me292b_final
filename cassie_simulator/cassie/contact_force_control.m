@@ -22,9 +22,10 @@ function tau = contact_force_control(s, model)
     Omega = Jdq(1:3);
 
     %% 1) stabilizing wrench at COM (F_d)
-    Kp = 500; Kd = 100;     % proportional and differential gain
+    % proportional and differential gain
     kh = 900; kv = 3000; Kp = diag([kh kh kv]);
     dh = sqrt(m*kh)*2*0.8; dv = sqrt(m*kv)*2*0.2; Kd = diag([dh dh dv]);
+    % marginally better performance switching P and D gains, but does not affect submission score
     f_d = -Kp*(rc - rc_d) - Kd*(drc - drc_d) + m*g;     % + m*ddrc_d;
 
     Kr = 100; Dr = 50;      % rotational stiffness and damping

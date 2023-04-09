@@ -1,2 +1,0 @@
-function sendmail(varargin) 
- end

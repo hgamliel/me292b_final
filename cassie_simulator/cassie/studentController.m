@@ -12,16 +12,19 @@ function tau = studentController(t, s, model, params)
     q = s(1 : model.n);
     dq = s(model.n+1 : 2*model.n);
 
-    %% [Control #1] zero control
+    %% [Control #0a] zero control
     % tau = zeros(10,1);
 
-    %% [Control #2] High Gain Joint PD control on all actuated joints
+    %% [Control #0b] High Gain Joint PD control on all actuated joints
     kp = 500 ;
     kd = 100 ;
     x0 = getInitialState(model);
     q0 = x0(1:model.n) ;
     % tau = -kp*(q(model.actuated_idx)-q0(model.actuated_idx)) - kd*dq(model.actuated_idx) ;
 
-    %% [Control #3] Contact Force Control
-    tau = contact_force_control(s, model);
+    %% [Control #1] Virtual Constraints Control
+    tau = virtual_constraints_control(s, model);
+
+    %% [Control #2] Contact Force Control
+    % tau = contact_force_control(s, model);
 end

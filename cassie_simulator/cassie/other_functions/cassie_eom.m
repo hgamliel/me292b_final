@@ -1,5 +1,5 @@
 % Function that computes the time-derivative of states of Cassie
-function [xdot, tau] = cassie_eom(t,s, model, params, externalForce)
+function [xdot, tau] = cassie_eom(t, s, model, params, externalForce)
 
     %% Extract generalized coordinates and velocities
     q = s(1 : model.n);

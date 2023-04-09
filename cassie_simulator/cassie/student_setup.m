@@ -39,4 +39,7 @@ function [ctrl, student_data] = student_setup(x0, model)
     % of these additional states.  The Ode solver will then integrate this for you.
     % In most cases, you do NOT need any integrator states
     ctrl.N_integrators = 0 ;
+    
+    % ODE options
+    ctrl.ode_options = odeset('Events', @falldetect, 'AbsTol', 1e-2, 'RelTol', 1e-2);
 end

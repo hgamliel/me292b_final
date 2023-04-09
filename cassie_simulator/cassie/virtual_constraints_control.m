@@ -1,51 +1,121 @@
 function tau = virtual_constraints_control(s, model)
-    % f and g vectors
-    % [H,Cq_G_JTF] = HandC( model, q, qd, f_ext );
-    % f_ext???? m(v - v_prev)/dt, I(omega - omega_prev)/dt
+    %% generalized coordinates and velocities
+    q = s(1:model.n);
+    dq = s(model.n+1:2*model.n);
 
-    zero = zeros(NDof,1);
-    f = [dq; inv(D)*(-C*dq-G)] + [zero; inv(D)*JSt'*FSt_no_u];
-    zero = zeros(NDof,length(u));
-    g = [zero; inv(D)*B] + [zero; inv(D)*JSt'*FSt_u];
+    % coordinate variable names
+    % q1 = hip roll/abduction, q2 = hip yaw/rotation, q3 = hip pitch/flexion
+    % q4 = knee pitch/joint, q5 = shin pitch/knee spring
+    % q6 = tarsus pitch/ankle joint, q7 = toe pitch/joint
+    qx = q(1); qy = q(2); qz = q(3); qyaw = q(4); qpitch = q(5); qroll = q(6);
+    q1L = q(7); q1R = q(8); q2L = q(9); q2R = q(10); q3L = q(11); q3R = q(12);
+    q4L = q(13); q4R = q(14); q5L = q(15); q5R = q(16);
+    q6L = q(17); q6R = q(18); q7L = q(19); q7R = q(20);
 
-    % virtual constraint 
-    x0 = getInitialState(model); rhip0 = x0(1:3);
-    y = s(1:6) - [rhip0; zeros(3,1)];
-    dy = s(21:27);
+    dqx = dq(1); dqy = dq(2); dqz = dq(3); dqyaw = dq(4); dqpitch = dq(5); dqroll = dq(6);
+    dq1L = dq(7); dq1R = dq(8); dq2L = dq(9); dq2R = dq(10); dq3L = dq(11); dq3R = dq(12);
+    dq4L = dq(13); dq4R = dq(14); dq5L = dq(15); dq5R = dq(16);
+    dq6L = dq(17); dq6R = dq(18); dq7L = dq(19); dq7R = dq(20);
 
-    % PD on virtual constraints?, refer to paper 1
+    %% virtual constraints
+    % variables being regulated
+    h0_ = [qroll;
+           q2R;
+           qpitch;
+           q4R;
+           q1L;
+           q2L;
+           q3L;
+           q4L;
+           q7L];
+    dh0_ = [dqroll;
+            dq2R;
+            dqpitch;
+            dq4R;
+            dq1L;
+            dq2L;
+            dq3L;
+            dq4L;
+            dq7L];
 
-    % [mass com_offset] = mcI_inv(model, j) ;
-    % mass_sum = mass_sum + mass ;
-    % body_COM_jac = bodyJac_vel(model,j,q,xlt(com_offset)); 
+    % initial state = desired state
+    q0 = getInitialState(model);
+    qroll0 = q0(6); q2R0 = q0(10); qpitch0 = q0(5); q4R0 = q0(14);
+    q1L0 = q0(7); q2L0 = q0(9); q3L0 = q0(11); q4L0 = q0(13); q7L0 = q0(19);
+    q7R0 = q0(20);
 
-    % Lie derivatives
-    dy_dq = jacobian(y, q);
-    d2y__ = [jacobian(dy_dq*dq, q), dy_dq];
+    % desired constraints
+    hd1 = qroll0;                                   % qroll, torso roll
+    hd2 = q2R0;                                     % q2st, stance hip yaw
+    hd3 = qpitch0;                                  % qpitch, torso pitch
+    hd4 = sqrt(0.5292*cos(q4R0 + 0.035) + 0.5301);  % qLLst, stance leg length
+    hd5 = qroll0 + q1L0;                            % qLRsw, swing leg roll
+    hd6 = q2L0;                                     % q2sw, swing hip yaw
+    hd7 = -qpitch0 + q3L0 - ...
+        acos( 0.5*(cos(q4L0+0.035)+0.5292) / sqrt(0.5292*cos(q4L0+0.035)+0.5301)) ...
+        + 0.1;                                      % qLPsw, swing leg pitch
+    hd8 = sqrt(0.5292*cos(q4L0 + 0.035) + 0.5301);  % qLLsw, swing leg length
+    hd9 = -qpitch0 + q7L0 + 1.1;                    % qFPsw, swing foot pitch
 
-    Lfy = dy_dq*dq;
-    Lgy = zeros(size(Lfy,1),length(u));
-    Lf2y = d2y__*f;
-    LgLfy = d2y__*g;
+    hd_ = [hd1;
+           hd2;
+           hd3;
+           -acos(1.8896*(hd4^2)-1.0017) - 0.035;
+           hd5 - qroll0;
+           hd6;
+           hd7 + qpitch0 - 0.1 + acos( 0.5*(cos(q4L0+0.035)+0.5292) / sqrt(0.5292*cos(q4L0+0.035)+0.5301) );
+           -acos(1.8896*(hd8^2)-1.0017) - 0.035;
+           hd9 + qpitch0 - 1.1];
+    hd_ = [qroll0;
+           q2R0;
+           qpitch0;
+           q4R0;
+           q1L0;
+           q2L0;
+           q3L0;
+           q4L0;
+           q7L0];
+    dhd_ = zeros(9,1);
 
-    % input-output linearizing controller
-    a = 0.9;
-    E = 0.1;
-    phi_a = @(x1,x2) x1 + 1/(2-a) * sign(x2) * abs(x2)^(2-a);
-    psi_a = @(x1,x2) -sign(x2)*abs(x2)^a - sign(phi_a(x1,x2))*abs(phi_a(x1,x2))^(a/(2-a));
+    % adding last stance leg actuator to virtual constraints
+    hd10 = -qpitch0 + q7R0 + 1.1;           % qFPst, stance foot pitch
+    h0_ = [h0_;
+           q7R];
+    dh0_ = [dh0_;
+            dq7R];
+    % hd_ = [hd_;
+    %        hd10 + qpitch0 - 1.1];
+    hd_ = [hd_;
+           q7R0];
+    dhd_ = [dhd_;
+            0];
 
-    v = (1/E^2)*[psi_a(y(1),E*dy(1)); psi_a(y(2),E*dy(2))];
-    u = inv(LgLfy)*(-Lf2y + v);
-end
+    % virtual constraints
+    y_ = h0_ - hd_;
+    dy_ = dh0_ - dhd_;
 
-% calculates moment of inertia about Cassie COM
-function I = I_COM(s, model)
-    I_COM = zeros(3);
-    for i = 1:model.NB
-        [mass, com_offset, I] = mcI_inv(model,i);
-        R = com_offset;
-        if(mass(i) > 0)
-            I_COM = I + mass*(norm(R)^2*eye(3) - R*R');
-        end
-    end
+    %% control
+    % parameter tuning
+    Kp_abduction = 400; Kp_rotation = 200; Kp_thigh = 200;
+    Kp_knee = 500; Kp_toe = 600;
+    Kd_abduction = 4; Kd_rotation = 4; Kd_thigh = 10;
+    Kd_knee = 20; Kd_toe = 80;
+
+    % proportional and differential gain matrices
+    Kp = diag([Kp_abduction, Kp_rotation, Kp_thigh, Kp_knee, ...
+               Kp_abduction, Kp_rotation, Kp_thigh, Kp_knee, Kp_toe, ...
+               Kp_toe]);
+    Kd = diag([Kd_abduction, Kd_rotation, Kd_thigh, Kd_knee, ...
+               Kd_abduction, Kd_rotation, Kd_thigh, Kd_knee, Kd_toe, ...
+               Kd_toe]);
+
+    % actuated leg joints: q1, q2, q3, q4, q7
+    % u = [q1R; q2R; q3R; q4R; q1L; q2L; q3L; q4L; q7L; q7R]
+    u = -Kp*y_ - Kd*dy_;
+    uq1R = u(1); uq2R = u(2); uq3R = u(3); uq4R = u(4);
+    uq1L = u(5); uq2L = u(6); uq3L = u(7); uq4L = u(8); uq7L = u(9);
+    uq7R = u(10);
+
+    % tau = [q1L; q1R; q2L; q2R; q3L; q3R; q4L; q4R; q7L; q7R]
+    tau = [uq1L; uq1R; uq2L; uq2R; uq3L; uq3R; uq4L; uq4R; uq7L; uq7R];
 end
