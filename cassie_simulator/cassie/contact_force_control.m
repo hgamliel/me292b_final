@@ -5,6 +5,7 @@ function tau = contact_force_control(s, model)
 
     % model parameters
     m = model.M;            % robot mass [kg]
+    mu = 0.8;               % friction coefficient
     g = [0; 0; 9.81];       % acceleration due to gravity [m/s^2]
 
     % COM positions and body orientations
@@ -14,16 +15,19 @@ function tau = contact_force_control(s, model)
     Omega_d = zeros(3,1);
 
     [rc, drc] = computeComPosVel(q, dq, model);
-    yaw = q(4); pitch = q(5); roll = q(6);
     Xb = bodypos(model, model.idx.torso, q);
     Rb = Xb(1:3,1:3)';
     % Rb = euler_to_rotm([yaw pitch roll])';
     Jdq = bodyJac(model, model.idx.torso, q)*dq;
     Omega = Jdq(1:3);
 
+    % desired vel = -current vel, to maintain equilibrium
+    Omega_d = -Omega;
+    drc_d = -drc;
+
     %% 1) stabilizing wrench at COM (F_d)
     % proportional and differential gain
-    kh = 900; kv = 3000; Kp = diag([kh kh kv]);
+    kh = 900*1.5; kv = 3000; Kp = diag([kh kh kv]);
     dh = sqrt(m*kh)*2*0.8; dv = sqrt(m*kv)*2*0.2; Kd = diag([dh dh dv]);
     % marginally better performance switching P and D gains, but does not affect submission score
     f_d = -Kp*(rc - rc_d) - Kd*(drc - drc_d) + m*g;     % + m*ddrc_d;
@@ -42,8 +46,8 @@ function tau = contact_force_control(s, model)
     %% 2) contact forces to produce desired wrench (fc)
     Gc = contact_grasp_map(s, model, rc);
 
-    n = 4;                              % friction cone pyramid, # sides           
-    nj_mat = nj_matrix(n);              % friction cone normal vectors
+    n = 10;                             % friction cone pyramid, # sides           
+    nj_mat = nj_matrix(n, mu);          % friction cone normal vectors
 
     A = zeros(4,12); A(sub2ind(size(A),1:4,3:3:12)) = -1;
     b = zeros(4,1);                     % unilateral constraint fi_z >= 0
@@ -52,8 +56,8 @@ function tau = contact_force_control(s, model)
     Aeq = []; beq = [];
     % instead of using equality constraint (Aeq*x = beq; Gc*fc = F_d),
     % add ||F_d - Gc*fc||^2 to the cost function with weights prioritizing:
-    % minimizing ||fc||^2 << getting correct tau_d << getting correct f_d
-    a1 = 10; a2 = 1; a3 = 0.01;         % a3 << a2 << a1
+    % getting correct f_d >> getting correct tau_d >>  minimizing ||fc||^2 
+    a1 = 10; a2 = 10; a3 = 0.01;         % a1 >> a2 >> a3
     A1 = [eye(3) zeros(3)];             % extract forces:  [I 0] ||F_d - Gc*fc||^2
     A2 = [zeros(3) eye(3)];             % extract torques: [0 I] ||F_d - Gc*fc||^2
     Gc1 = A1*Gc; F_d1 = A1*F_d; Gc2 = A2*Gc; F_d2 = A2*F_d; 
@@ -156,8 +160,8 @@ function Gc = contact_grasp_map(s, model, rc)
 end
 
 % computes normal vectors for friction cone pyramid approximation
-function nj = pyramid(n)
-    mu = 0.8;           % coefficient of friction
+function nj = pyramid(n, mu)
+    % mu                % coefficient of friction
     % n                 % number of sides of polygon
 
     % define points around base of pyramid
@@ -178,8 +182,8 @@ function nj = pyramid(n)
 end
 
 % returns inequality matrix for friction cone constraint to use in quadprog()
-function nj_mat = nj_matrix(n)
-    nj = pyramid(n);                    % friction cone normal vectors
+function nj_mat = nj_matrix(n, mu)
+    nj = pyramid(n, mu);                % friction cone normal vectors
     nj_mat = zeros(n*4,3*4);            % 4 contact points
     for i = 1:4
         ind_j = i + 2*(i-1);
