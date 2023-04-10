@@ -28,7 +28,7 @@ function tau = contact_force_control(s, model)
     % marginally better performance switching P and D gains, but does not affect submission score
     f_d = -Kp*(rc - rc_d) - Kd*(drc - drc_d) + m*g;     % + m*ddrc_d;
 
-    Kr = 2000; Dr = 1000;      % rotational stiffness and damping
+    Kr = 100; Dr = 50;      % rotational stiffness and damping
     Rdb = R_d'*Rb; Rwb = Rb;
     quat = rotm_to_quaternion(Rdb); delta = quat(1); epsilon = quat(2:4);
     tau_r = -2*(delta*eye(3) + hat(epsilon))*Kr*epsilon;

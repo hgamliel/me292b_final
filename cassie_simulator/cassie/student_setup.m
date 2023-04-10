@@ -18,7 +18,7 @@ function [ctrl, student_data] = student_setup(x0, model)
     %% Set Student Data  [UPDATE THIS TO SUBMIT]
     % Provide student information.  Enter your student id and your team name.
     % Your student id will be used to register your score for your grade.
-    student_data.id = 3033749788 ; % ENTER YOUR STUDENT ID
+    student_data.id = 3033669708 ; % ENTER YOUR STUDENT ID
 
     % Your team_name will be displayed on the leaderboard - this will serve to anonymize you to your peers.  (Choose a wise / cheeky nick name.)
     % Ensure all members of your team use the same team name.
