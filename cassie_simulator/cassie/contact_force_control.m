@@ -27,19 +27,18 @@ function tau = contact_force_control(s, model)
 
     %% 1) stabilizing wrench at COM (F_d)
     % proportional and differential gain
-    kh = 900*1.5; kv = 3000; Kp = diag([kh kh kv]);
+    kh = 900*5; kv = 3000; Kp = diag([kh kh kv]);
     dh = sqrt(m*kh)*2*0.8; dv = sqrt(m*kv)*2*0.2; Kd = diag([dh dh dv]);
-    % marginally better performance switching P and D gains, but does not affect submission score
     f_d = -Kp*(rc - rc_d) - Kd*(drc - drc_d) + m*g;     % + m*ddrc_d;
 
-    Kr = 100; Dr = 50;      % rotational stiffness and damping
+    Kr = 100*5; Dr = 50*5;      % rotational stiffness and damping
     Rdb = R_d'*Rb; Rwb = Rb;
     quat = rotm_to_quaternion(Rdb); delta = quat(1); epsilon = quat(2:4);
     tau_r = -2*(delta*eye(3) + hat(epsilon))*Kr*epsilon;
     % error definition 1: quaternion
     tau_d = Rwb*(tau_r - Dr*(Omega - Omega_d));
     % error definition 2: rotation matrix
-    % tau_d = -Kr*error(Rb,R_d) - Kd*(Omega - Rb'*R_d*Omega_d); % + I*dOmega_d
+    % tau_d = -Kr*error(Rb,R_d) - Dr*(Omega - Rb'*R_d*Omega_d); % + I*dOmega_d
 
     F_d = [f_d; tau_d];
 
@@ -57,7 +56,7 @@ function tau = contact_force_control(s, model)
     % instead of using equality constraint (Aeq*x = beq; Gc*fc = F_d),
     % add ||F_d - Gc*fc||^2 to the cost function with weights prioritizing:
     % getting correct f_d >> getting correct tau_d >>  minimizing ||fc||^2 
-    a1 = 10; a2 = 10; a3 = 0.01;         % a1 >> a2 >> a3
+    a1 = 10; a2 = 1; a3 = 0.01;         % a1 >> a2 >> a3
     A1 = [eye(3) zeros(3)];             % extract forces:  [I 0] ||F_d - Gc*fc||^2
     A2 = [zeros(3) eye(3)];             % extract torques: [0 I] ||F_d - Gc*fc||^2
     Gc1 = A1*Gc; F_d1 = A1*F_d; Gc2 = A2*Gc; F_d2 = A2*F_d; 

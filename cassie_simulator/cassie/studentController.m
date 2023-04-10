@@ -26,8 +26,8 @@ function tau = studentController(t, s, model, params)
     % tau = virtual_constraints_control(s, model);
 
     %% [Control #2] Contact Force Control
-    tau = contact_force_control(s, model);
+    % tau = contact_force_control(s, model);
 
     %% [Control #3] Momentum Control
-    % tau = momentum_control(s, model);
+    tau = momentum_control(s, model);
 end

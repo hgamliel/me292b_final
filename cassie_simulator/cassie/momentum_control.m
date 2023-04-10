@@ -59,8 +59,8 @@ function tau = momentum_control(s, model)
     fc = quadprog(H,f,A,b,Aeq,beq,...
         lb,ub,x0,options);          % min 0.5*x'*H*x + f'*x
 
-    % b) determine foot CoPs:
-    % eta = [[dlx dly dlz] [0 0 tau_zl] [drx dry drz] [0 0 tau_zr]]'
+    % b) determine foot CoPs: eta = [dlx dly dlz drx dry drz]'
+        % ignore ground reaction torque (flat ground)
     [rlf, rlb, rrf, rrb] = computeFootPositions(s, model);
     p = [rlf-rl rlb-rl rrf-rr rrb-rr];
     dlx_ub = p(1,1); dlx_lb = p(1,2);   % line contact: dly = 0, fixed
@@ -69,21 +69,18 @@ function tau = momentum_control(s, model)
     drz_ub = p(3,4); drz_lb = p(3,3);   % ankle height from ground
     hl = mean([dlz_ub dlz_lb]); hr = mean([drz_ub drz_lb]);
 
-    [Rl, Rr] = compute_ankle_orientations(q, model);
-
-    % dk_md = dk_d - dk_f = tau_l + tau_r, where tau_i = -fi x di + tau_ni
+    % dk_md = dk_d - dk_f = tau_l + tau_r, where tau_i = -fi x di
     epsilon = 0.1;
     fl = fc(1:3); fr = fc(4:6);
     dk_f = K*fc; dk_md = dk_d - dk_f;
-    Psi = [-Rl*hat(fl) Rl -Rr*hat(fr) Rr];
-    eta_d = [(hl/fl(3))*fl; 0; 0; 0; (hr/fr(3))*fr; 0; 0; 0];
-    temp = diag([1 1 1 0 0 0 1 1 1 0 0 0]);
-    H = Psi'*Psi*2 + temp'*temp*2*epsilon;
-    f = (-2*dk_md'*Psi)' + (-2*epsilon*eta_d'*temp)';
+    Psi = [-hat(fl) -hat(fr)];
+    eta_d = [(hl/fl(3))*fl; (hr/fr(3))*fr];
+    H = Psi'*Psi*2 + 2*epsilon*eye(6);
+    f = (-2*dk_md'*Psi)' + -2*epsilon*eta_d;
     
     A = []; b = []; Aeq = []; beq = []; x0 = [];
-    lb = [[dlx_lb 0 dlz_lb] [0 0 -mu*fl(3)] [drx_lb 0 drz_lb] [0 0 -mu*fl(3)]];
-    ub = [[dlx_ub 0 dlz_ub] [0 0  mu*fl(3)] [drx_ub 0 drz_ub] [0 0  mu*fl(3)]];
+    lb = [dlx_lb 0 dlz_lb drx_lb 0 drz_lb];
+    ub = [dlx_ub 0 dlz_ub drx_ub 0 drz_ub];
     options =  optimset('Display','off');
     eta = quadprog(H,f,A,b,Aeq,beq,...
         lb,ub,x0,options);          % min 0.5*x'*H*x + f'*x
