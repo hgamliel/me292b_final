@@ -1,6 +1,8 @@
 function f_ext = ExternalForce(t, q,model)
 % F_pert 6x1 - roll, pitch, yaw, x,y,z
-F_pert =       [10 -10 10            -10 10 -10]';
+F_pert =       7.5*[1 -1 1            -1 1 -1]';
+F_pert =       0*[1 -1 1            -1 1 -1]';
+F_pert = [0 0 0 10 0 0]';
 
 
 % apply perturbation force on torso
