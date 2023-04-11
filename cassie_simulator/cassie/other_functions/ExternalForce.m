@@ -16,7 +16,7 @@ tau_max = 0.1*m*g;
 if (t > 0.1)
     F_pert = zeros(6,1);
 else
-    F_pert = [0 0 0 0 0 0]';              
+    F_pert = [0 0 0.85*tau_max 0 0 0]';              
 end
 % assume perturbation impulse applied only at t = 0
 % contact_force_control:

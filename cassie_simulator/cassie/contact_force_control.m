@@ -42,9 +42,9 @@ function tau = contact_force_control(t, s, model)
 
     % correct the behavior for high yaw perturbation
     % can't differentiate between high Fz and high yaw?, use roll instead of dq(3)
-    % if t < 0.1 && abs(dq(3)) > 0.05  && abs(dq(3)) < 0.55 && norm(dq(4:6)) > 0.05
-    %     tau_d = tau_d*10;
-    % end
+    if t < 0.1 && abs(dq(3)) > 0.05  && abs(dq(3)) < 0.55 && norm(dq(4:6)) > 0.05
+        tau_d = tau_d*7.5;
+    end
 
     % correct the behavior for high x, y, z perturbation
 
