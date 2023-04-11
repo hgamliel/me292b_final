@@ -9,7 +9,7 @@ function tau = contact_force_control(s, model)
     g = [0; 0; 9.81];       % acceleration due to gravity [m/s^2]
 
     % COM positions and body orientations
-    rc_d = [-0.0103; 0; 0.8894];
+    rc_d = [-0.0103; 0; 0.8894*.7];
     drc_d = zeros(3,1);
     R_d = eye(3);
     Omega_d = zeros(3,1);
@@ -27,12 +27,14 @@ function tau = contact_force_control(s, model)
 
     %% 1) stabilizing wrench at COM (F_d)
     % proportional and differential gain
-    kh = 900*5; kv = 3000*4; Kp = diag([kh kh kv]);
-    dh = sqrt(m*kh)*2*1; dv = sqrt(m*kv)*2*0.2; Kd = diag([dh dh dv]);
+    kh = 900*4.5; kv = 3000*4.5; Kp = diag([kh kh kv]);
+    dh = sqrt(m*kh)*2*.7; dv = sqrt(m*kv)*2*0.2; Kd = diag([dh dh dv]);
+
     % marginally better performance switching P and D gains, but does not affect submission score
     f_d = -Kp*(rc - rc_d) - Kd*(drc - drc_d) + m*g; %+ m*ddrc_d;
 
     Kr = 2000*3; Dr = 1000*8;      % rotational stiffness and damping
+
     Rdb = R_d'*Rb; Rwb = Rb;
     quat = rotm_to_quaternion(Rdb); delta = quat(1); epsilon = quat(2:4);
     tau_r = -2*(delta*eye(3) + skew(epsilon))*Kr*epsilon;
