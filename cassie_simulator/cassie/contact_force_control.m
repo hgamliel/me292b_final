@@ -1,4 +1,4 @@
-function tau = contact_force_control(s, model)
+function tau = contact_force_control(t, s, model)
     % generalized coordinates and velocities
     q = s(1:model.n);
     dq = s(model.n+1:2*model.n);
@@ -9,7 +9,16 @@ function tau = contact_force_control(s, model)
     g = [0; 0; 9.81];       % acceleration due to gravity [m/s^2]
 
     % COM positions and body orientations
-    rc_d = [-0.0103; 0; 0.8894*.7];
+    
+    global high_yaw
+    if t < 0.1 && abs(dq(3)) > 0.05*0.15 && norm(dq(4:6)) > 0.05*0.15
+        high_yaw = true;
+    end
+    if high_yaw
+        rc_d = [-0.0103; 0; 0.8894*0.7];
+    else
+        rc_d = [-0.0103; 0; 0.8894];
+    end
     drc_d = zeros(3,1);
     R_d = eye(3);
     Omega_d = zeros(3,1);
@@ -27,8 +36,8 @@ function tau = contact_force_control(s, model)
 
     %% 1) stabilizing wrench at COM (F_d)
     % proportional and differential gain
-    kh = 900*4.5; kv = 3000*4.5; Kp = diag([kh kh kv]);
-    dh = sqrt(m*kh)*2*.7; dv = sqrt(m*kv)*2*0.2; Kd = diag([dh dh dv]);
+    kh = 900*4.5; kv = 3000*4.5; Kp = diag([kh kh*2 kv]);
+    dh = sqrt(m*kh)*2*.65; dv = sqrt(m*kv)*2*0.2; Kd = diag([dh dh*2 dv]);
 
     % marginally better performance switching P and D gains, but does not affect submission score
     f_d = -Kp*(rc - rc_d) - Kd*(drc - drc_d) + m*g; %+ m*ddrc_d;

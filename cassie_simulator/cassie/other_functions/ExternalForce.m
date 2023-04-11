@@ -7,7 +7,7 @@ yaw_max = model.M*9.81*.1 ;
 y_max = model.M*9.81*.5;
 
 if t<.1
-    F_pert = [0 0 yaw_max*.85 0 0 0]';
+    F_pert = [0 0 0 0 y_max 0]';
 else
     F_pert = zeros(6,1);
 end
