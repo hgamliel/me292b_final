@@ -5,7 +5,7 @@ function tau = momentum_control(s, model)
 
     % model parameters
     m = model.M;            % robot mass [kg]
-    I = I_COM(s, model);    % robot moment of inertia [kg*m^2]
+    I = I_COM2(q, model);   % robot moment of inertia [kg*m^2]
     mu = 0.8;               % friction coefficient
     g = [0; 0; -9.81];      % acceleration due to gravity [m/s^2]
 
@@ -17,6 +17,9 @@ function tau = momentum_control(s, model)
     Jdq = bodyJac(model, model.idx.torso, q)*dq;
     Omega = Jdq(1:3);
 
+    h = I*Jdq;              % h = [l, k]
+    k = h(1:3); l = h(4:6);
+
     %% desired momenta for balance maintenance
     % linear momentum
     Gamma11 = diag([40 20 40]); Gamma12 = diag([8 3 8]);
@@ -24,7 +27,7 @@ function tau = momentum_control(s, model)
     dl_d = m*dl_d;
 
     % centroidal angular momentum
-    k = I*Omega; k_d = zeros(3,1);
+    k_d = zeros(3,1);
     Gamma21 = diag([20 20 20]);
     dk_d = Gamma21*(k_d - k);
 
@@ -95,15 +98,28 @@ function tau = momentum_control(s, model)
     tau = 0;
 end
 
-% calculates moment of inertia about Cassie COM
-function I = I_COM(s, model)
-    I_COM = zeros(3);
+% calculates moment of inertia about Cassie COM (parallel axis theorem)
+function Icom = I_COM(model)
+    Icom = zeros(3);
     for i = 1:model.NB
         [mass, com_offset, I] = mcI_inv(model, i);
         R = com_offset;
         if (mass > 0)
             I_b = I + mass*(norm(R)^2*eye(3) - R*R');
-            I_COM = I_COM + I_b;
+            Icom = Icom + I_b;
+        end
+    end
+end
+
+% calculates spatial inertia about Cassie COM
+function Icom = I_COM2(q, model)
+    Icom = zeros(6);
+    for i = 1:model.NB
+        [mass, ~, ~] = mcI_inv(model, i);
+        X = bodypos(model, i, q);
+        if (mass > 0)
+            I_b = X'*model.I{i}*X;
+            Icom = Icom + I_b;
         end
     end
 end

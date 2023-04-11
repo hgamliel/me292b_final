@@ -37,6 +37,14 @@ legend('v_x', 'v_y', 'v_z', '||v||')
 
 figure
 hold on
+plot(t(1:n),v(3,1:n))
+az=interp1(t(1:n),gradient(v(3,1:n)),t(1:n),'spline');
+xlabel('time (s)')
+legend('v_z', 'a_z')
+
+
+figure
+hold on
 plot(t(1:n),w(1,1:n))
 plot(t(1:n),w(2,1:n))
 plot(t(1:n),w(3,1:n))

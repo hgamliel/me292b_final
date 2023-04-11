@@ -29,9 +29,20 @@ function tau = contact_force_control(t, s, model)
     % proportional and differential gain
     kh = 900; kv = 3000; Kp = diag([kh kh kv]);
     dh = sqrt(m*kh)*2*0.8; dv = sqrt(m*kv)*2*0.2; Kd = diag([dh dh dv]);
+    Kr = 100*eye(3); Dr = 50*eye(3);    % rotational stiffness and damping
+
+    if abs(dq(3)) > 0.05               % correct behavior for high yaw perturbation
+        % Kr = 250*abs(dq(3))*Kr;
+        % Dr = 500*abs(dq(3))*Dr;
+        % Kd = 10*Kd;
+        % && norm(dq(4:6)) > 1
+        % tau_d = 0?
+        % no rotation position error?
+        % set R = rotm([yaw 0 0])
+    end
+
     f_d = -Kp*(rc - rc_d) - Kd*(drc - drc_d) + m*g;     % + m*ddrc_d;
 
-    Kr = 100*eye(3); Dr = 50*eye(3);    % rotational stiffness and damping
     Rdb = R_d'*Rb; Rwb = Rb; Rwb = eye(3);
     quat = rotm_to_quaternion(Rdb); delta = quat(1); epsilon = quat(2:4);
     tau_r = -2*(delta*eye(3) + hat(epsilon))*Kr*epsilon;
@@ -39,14 +50,12 @@ function tau = contact_force_control(t, s, model)
     tau_d = Rwb*(tau_r - Dr*(Omega - Omega_d));
     % error definition 2: rotation matrix
     % tau_d = -Kr*error(Rb,R_d) - Dr*(Omega - Rb'*R_d*Omega_d); % + I*dOmega_d
-
-    % correct the behavior for high yaw perturbation
-    % can't differentiate between high Fz and high yaw?, use roll instead of dq(3)
-    % if t < 0.1 && abs(dq(3)) > 0.05  && abs(dq(3)) < 0.55 && norm(dq(4:6)) > 0.05
+    % if abs(dq(3)) > 0.05 && t < 0.1 && norm(dq(4:6)) > 0.05               % correct behavior for high yaw perturbation
     %     tau_d = tau_d*10;
     % end
-
-    % correct the behavior for high x, y, z perturbation
+    if abs(dq(3)) > 0.05
+        
+    end
 
     F_d = [f_d; tau_d];
 
