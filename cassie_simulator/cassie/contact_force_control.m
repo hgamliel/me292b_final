@@ -9,10 +9,19 @@ function tau = contact_force_control(t, s, model)
     g = [0; 0; 9.81];       % acceleration due to gravity [m/s^2]
 
     % COM positions and body orientations
-    rc_d = [-0.0103; 0; 0.8894];
+    global high_yaw         % change desired COM depending on yaw perturbation
+    if t < 0.1 && abs(dq(3)) > 0.05*.15 && norm(dq(4:6)) > 0.05*.15
+        high_yaw = true;
+    end
+    if high_yaw
+        rc_d = [-0.0103; 0; 0.8894*0.7];
+    else
+        rc_d = [-0.0103; 0; 0.8894];
+    end
     drc_d = zeros(3,1);
     R_d = eye(3);
     Omega_d = zeros(3,1);
+    rc_d(2) = -rc_d(2)*5;
 
     [rc, drc] = computeComPosVel(q, dq, model);
     Xb = bodypos(model, model.idx.torso, q);
@@ -27,27 +36,18 @@ function tau = contact_force_control(t, s, model)
 
     %% 1) stabilizing wrench at COM (F_d)
     % proportional and differential gain
-    kh = 900; kv = 3000; Kp = diag([kh kh kv]);
-    dh = sqrt(m*kh)*2*0.8; dv = sqrt(m*kv)*2*0.2; Kd = diag([dh dh dv]);
+    kh = 900*4.5; kv = 3000*4.5; Kp = diag([kh kh*2 kv]);
+    dh = sqrt(m*kh)*2*0.8; dv = sqrt(m*kv)*2*0.2; Kd = diag([dh dh*2 dv]);
     f_d = -Kp*(rc - rc_d) - Kd*(drc - drc_d) + m*g;     % + m*ddrc_d;
 
-    Kr = 100*eye(3); Dr = 50*eye(3);    % rotational stiffness and damping
-    Rdb = R_d'*Rb; Rwb = Rb; Rwb = eye(3);
+    Kr = 2000*3; Dr = 1000*8;           % rotational stiffness and damping
+    Rdb = R_d'*Rb; Rwb = Rb;
     quat = rotm_to_quaternion(Rdb); delta = quat(1); epsilon = quat(2:4);
     tau_r = -2*(delta*eye(3) + hat(epsilon))*Kr*epsilon;
     % error definition 1: quaternion
     tau_d = Rwb*(tau_r - Dr*(Omega - Omega_d));
     % error definition 2: rotation matrix
     % tau_d = -Kr*error(Rb,R_d) - Dr*(Omega - Rb'*R_d*Omega_d); % + I*dOmega_d
-
-    % correct the behavior for high yaw perturbation
-    % can't differentiate between high Fz and high yaw?, use roll instead of dq(3)
-    if t < 0.1 && abs(dq(3)) > 0.05  && abs(dq(3)) < 0.55 && norm(dq(4:6)) > 0.05
-        tau_d = tau_d*7.5;
-    end
-
-    % correct the behavior for high x, y, z perturbation
-
     F_d = [f_d; tau_d];
 
     %% 2) contact forces to produce desired wrench (fc)
