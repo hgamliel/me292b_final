@@ -1,0 +1,14 @@
+attrs==19.3.0
+gym
+mpi4py==3.0.3
+numpy
+pybullet>=3.0.6
+typing==3.7.4.1
+stable-baselines==2.10.0
+tqdm
+numba
+quadprog
+inputs
+absl-py
+filterpy
+scipy
