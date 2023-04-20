@@ -11,7 +11,7 @@ from quadsim.robots import robot_config
 
 
 USE_REAL_ROBOT: bool = False
-USE_MATLAB: bool = False
+USE_MATLAB: bool = True
 DT: float = .002  # [s]
 SIM_DURATION: float = 2.  # [s]
 DEFUALT_JOINT_POS: np.ndarray = np.array([

@@ -54,10 +54,16 @@ function [out,use_torque,kp,kd] = control(t,v,omega,quat,q,dq,foot_contact)
     %%% Position control example %%%
     % Create a dummy output with zero positions
     out = [0 0 0 0 0 0 0 0 0 0 0 0];
+    init_joint_angles = [-.1, .8, -1.5, ...
+                          .1, .8, -1.5, ...
+                         -.1, .8, -1.5, ...
+                          .1, .8, -1.5];
+    out = init_joint_angles;
     % Set to use position control
     use_torque = false;
     % Create a dummy kp with zeros
     kp = [0 0 0 0 0 0 0 0 0 0 0 0];
+    kp = 100*ones(1,12);
     % Create a dummy kd with zeros
     kd = [0 0 0 0 0 0 0 0 0 0 0 0];
 
@@ -70,4 +76,15 @@ function [out,use_torque,kp,kd] = control(t,v,omega,quat,q,dq,foot_contact)
     kp = [0 0 0 0 0 0 0 0 0 0 0 0];
     % Create a placeholder for kd
     kd = [0 0 0 0 0 0 0 0 0 0 0 0];
+
+
+    %% Naive Position Control
+    % [out,use_torque,kp,kd] = naive_position_control(t, v);
+
+    %% Contact Force Control
+    % [out,use_torque,kp,kd] = contact_force_control(t,v,omega,quat,q,dq,foot_contact);
+    
+    %% Model Predictive Control
+    % [out,use_torque,kp,kd] = MPC(t,v,omega,quat,q,dq,foot_contact);
+
 end
