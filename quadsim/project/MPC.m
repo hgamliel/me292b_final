@@ -41,6 +41,9 @@ function [out,use_torque,kp,kd] = MPC(t,v,omega,quat,q,dq,foot_contact)
     %%% use_torque %%%
     % If use torque output (otherwise use position)
 
+    %% transpose function parameters into column vectors
+    v = v'; omega = omega'; quat = quat'; q = q'; dq = dq';
+    
     %% model parameters
     INIT_POS = [0, 0, 0.32];
     INIT_QUAT = euler_to_quaternion([0 0 0]);
@@ -80,6 +83,7 @@ function [out,use_torque,kp,kd] = MPC(t,v,omega,quat,q,dq,foot_contact)
                       0.1, 0.45, -1.75;
                       0.1,  0.6,  -1.5;
                       0.1,  0.8,  -1.5];
+        swing_traj = repmat([0.1, 0.8, -1.5],4,1);
         tf = 0.5;               % time to take one step [s]
         swing_t_steps = linspace(0, tf, size(swing_traj,1))';
     end
@@ -98,10 +102,18 @@ function [out,use_torque,kp,kd] = MPC(t,v,omega,quat,q,dq,foot_contact)
 
     % if minimum swing time has passed and swing foot is back on ground
     swing_time_elapsed = t - swing_time_start;
-    if (swing_time_elapsed > 0.05) && (foot_contact(sw_ft_id+1) == 1)
-        gait_phase = mod(gait_phase+1, 4);
-        swing_time_start = t;
-    end
+    % if (swing_time_elapsed > 0.05) && (foot_contact(sw_ft_id+1) == 1)
+    %     gait_phase = mod(gait_phase+1, 4);
+    %     swing_time_start = t;
+    % 
+    %     ind = sw_ft_id + 1; ind = ind + 2*(ind-1);
+    %     sw_joint_pos0 = q(ind:ind+2);
+    %     swing_traj = [sw_joint_pos0';
+    %                   0.1,  0.8,    -2;
+    %                   0.1, 0.45, -1.75;
+    %                   0.1,  0.6,  -1.5;
+    %                   0.1,  0.8,  -1.5];
+    % end
 
     % joint angles during swing phase
     swing_joint_pos = ...
@@ -138,14 +150,16 @@ function [out,use_torque,kp,kd] = MPC(t,v,omega,quat,q,dq,foot_contact)
     %% state vector and desired state
     % state
     omega = R*omega;
-    x = [euler; pos'; omega'; v'; g];
+    euler = quaternion_to_euler(quat);
+    x = [euler; pos; omega; v; g];
 
     COM_des = [pos(1)+dx; 0; 0.32];
     % mostly interested in moving forward along X, other errors can be ignored
-    % can weight only linear velocity instead of position
-    x_des = [zeros(3,1); COM_des; zeros(3,1)'; [v_des; 0; 0]];
+    % can choose to weight only linear velocity instead of position
+    x_des = [zeros(3,1); COM_des; zeros(3,1); [v_des; 0; 0]; g];
     nlobj.Weights.OutputVariables = ...
-        [[0.1, 0.1, 0.1] [0, 0, 0] [0.1, 0.1, 0.1] [1, 0.5, 0.5]];
+        [[0.1, 0.1, 0.1] [0, 0, 0.5] [0.1, 0.1, 0.1] [1, 0.5, 0.5] 0];
+    nlobj.Weights.ManipulatedVariablesRate = 0.1*ones(1,12);
 
     %% MPC control, run through dynamics to get contact forces
     nx = 13;                    % number of states
@@ -153,23 +167,18 @@ function [out,use_torque,kp,kd] = MPC(t,v,omega,quat,q,dq,foot_contact)
     nu = 12;                    % number of inputs
     nlobj = nlmpc(nx, ny, nu);  % nonlinear MPC object
 
-    % nlobj.Weights.ManipulatedVariablesRate = [0.1 0.1 0.1 0.1];
-    % test MPC static balancing
-    % linear MpC documentation
-
-
     % specify state function and Jacobian state function
-    nlobj.Model.StateFcn = @QuadrupedStateFcn;
-    nlobj.Jacobian.StateFcn = @QuadrupedStateJacobianFcn;
+    nlobj.Model.StateFcn = @(x, u) QuadrupedStateFcn(x, u);
+    nlobj.Jacobian.StateFcn = @(x0, u0) QuadrupedStateJacobianFcn(x0, u0);
 
     % specify sample time [s], prediction horizon [steps], control horizon [2 steps]
     nlobj.Ts = 0.1;
     nlobj.PredictionHorizon = 18;
     nlobj.ControlHorizon = 2;
 
-    % eliminate contact force from swing foot, restrict gravity state
-    min_lim = [repmat({-inf},12,1); g];
-    max_lim = [repmat({inf},12,1); g];
+    % eliminate contact force from swing foot
+    min_lim = [repmat({-inf},12,1)];
+    max_lim = [repmat({inf},12,1)];
 
     ind = sw_ft_id + 1; ind = ind + 2*(ind-1);
     min_lim(ind:ind+2) = {0}; max_lim(ind:ind+2) = {0};
@@ -183,15 +192,11 @@ function [out,use_torque,kp,kd] = MPC(t,v,omega,quat,q,dq,foot_contact)
     if (t == 0)
         lastMV = zeros(12,1);
     end
-    [uk,~,~] = nlmpcmove(nlobj,x,lastMV,x_des,[],nloptions);
+    [uk,~,~] = nlmpcmove(nlobj, x, lastMV, x_des', []);
     lastMV = uk;
     fc = uk;                    % optimal contact forces
 
-    % for feet not in contact with ground, need swing phase code
-        % convert joint angles/pos to torques - how?
-        % FIND HOW RUN.PY COMPUTES TORQUES FOR UK AND GENERAL JOINT POS
-
-    % tau = Jacobian transpose * contact force
+    %% convert contact forces to joint torques with Jacobian
     J = cell(4,1);
     for leg_id = 0:3
         J{leg_id+1} = ComputeJacobian(leg_id, q);
@@ -203,23 +208,26 @@ function [out,use_torque,kp,kd] = MPC(t,v,omega,quat,q,dq,foot_contact)
         tau(ind:ind+2) = -J{i}' * fc(ind:ind+2);
     end
 
-    % output torques in correct order????
+    % swing trajectory PD controller, convert joint angles to torques
+    ind = sw_ft_id + 1; ind = ind + 2*(ind-1);
+    kp = 10; kd = 1;
+    sw_tau = ...
+        -kp*(q(ind:ind+2) - swing_joint_pos') - kd*(dq(ind:ind+2) - zeros(3,1));
+
+    % output correct torques
     sw_tau = zeros(3,1);
     switch sw_ft_id
         case 0      % FR
-            % out = [sw_tau' tau'];
             tau(1:3) = sw_tau;
         case 1      % FL
-            % out = [tau(1:3)' sw_tau' tau(4:9)'];
             tau(4:6) = sw_tau;
         case 2      % RR
-            % out = [tau(1:6)' sw_tau' tau(7:9)'];
             tau(7:9) = sw_tau;
         case 3      % RL
-            % out = [tau' sw_tau'];
             tau(10:12) = sw_tau;
     end
     use_torque = true;          % enable torque control
+    out = tau;
 end
 
 %% controller helper functions
@@ -249,7 +257,7 @@ end
 
 % computes Euler angles from quaternion
 function euler = quaternion_to_euler(quat)
-    x = quat(1); y = quat(2); y = quat(3); z = quat(4);
+    w = quat(4); x = quat(1); y = quat(2); z = quat(3);
 
     t0 = 2*(w*x + y*z);
     t1 = 1 - 2*(x*x + y*y);
@@ -279,28 +287,29 @@ end
 
 % computes hat map of vector
 function x_hat = hat(x)
-    % x_hat = [0 -x(3) x(2); x(3) 0 -x(1); -x(2) x(1) 0];
-    x_hat = skew(x);
+    x_hat = [0 -x(3) x(2); x(3) 0 -x(1); -x(2) x(1) 0];
+    % x_hat = skew(x);
 end
 
 % calculate numerical Jacobian of state function
-function A_jac, B_jac = numerical_Jacobian(A, B, x0, u0)
+function [A_jac, B_jac] = numerical_Jacobian(A, B, x0, u0)
     % Jacobian functor
     J = @(x, h, F) (F(repmat(x,size(x'))+diag(h))-F(repmat(x,size(x'))))./h';
 
     % state functions
     f1 = @(x) A*x;      % + constant B*u (for constant u)
-    f2 = @(x) B*u;      % + constant A*x (for constant x)
+    f2 = @(u) B*u;      % + constant A*x (for constant x)
 
     % points at which to estimate Jacobian
     % x0, u0
 
-    % Step to take on each dimension (has to be small enough for precision)
-    h = 1e-5*ones(size(x));
+    % step to take on each dimension (has to be small enough for precision)
+    h_x = 1e-5*ones(size(x0));
+    h_u = 1e-5*ones(size(u0));
 
     % Compute the jacobian
-    A_jac = J(x0, h, f1);
-    B_jac = J(u0, h, f2);
+    A_jac = J(x0, h_x, f1);
+    B_jac = J(u0, h_u, f2);
 end
 
 % inequality function for MPC, ground contact constraints
@@ -317,7 +326,7 @@ function cineq = groundContactIneqConFcn(X,U,e,data)
     % friction cone constraint
     A = [A; -nj_mat];
 
-    cineq = A*X;
+    cineq = A*U';
 end
 
 % computes normal vectors for friction cone pyramid approximation
@@ -434,7 +443,6 @@ function foot_positions = foot_positions_in_base_frame(foot_angles)
 
   global HIP_OFFSETS
   foot_positions = foot_positions + HIP_OFFSETS;
-  fpB = fpH + hip_offsets
 end
 
 % computes Jacobian for a given leg

@@ -85,6 +85,6 @@ function [out,use_torque,kp,kd] = control(t,v,omega,quat,q,dq,foot_contact)
     % [out,use_torque,kp,kd] = contact_force_control(t,v,omega,quat,q,dq,foot_contact);
     
     %% Model Predictive Control
-    % [out,use_torque,kp,kd] = MPC(t,v,omega,quat,q,dq,foot_contact);
+    [out,use_torque,kp,kd] = MPC(t,v,omega,quat,q,dq,foot_contact);
 
 end

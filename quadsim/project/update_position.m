@@ -3,7 +3,7 @@ function dx = update_position(t, v, v_des)
     global pos time prev_time
     
     if (t == 0) % && ~isempty(pos)
-        pos = [0, 0, 0.32]; % initial position
+        pos = [0; 0; 0.32]; % initial position
         prev_time = 0;
     end
 
