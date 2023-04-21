@@ -1,4 +1,4 @@
-function [out,use_torque,kp,kd] = MPC(t,v,omega,quat,q,dq,foot_contact)
+function [out,use_torque] = contact_force_control(t,v,omega,quat,q,dq,foot_contact)
     %% Inputs
     %%% t %%%
     % Time elapsed in the simulation [s]
@@ -23,7 +23,6 @@ function [out,use_torque,kp,kd] = MPC(t,v,omega,quat,q,dq,foot_contact)
     %   rear_right_hip,  rear_right_thigh,  rear_right_calf,
     %    rear_left_hip,   rear_left_thigh,   rear_left_calf]
     % dim=12
-    % joint limitations (deg): hip: -46~46, thigh: -60~240, calf: -154.5~-52.5
 
     %%% dq %%%
     % Joint velocity [rad/s]
@@ -41,19 +40,23 @@ function [out,use_torque,kp,kd] = MPC(t,v,omega,quat,q,dq,foot_contact)
     %%% use_torque %%%
     % If use torque output (otherwise use position)
 
-    %% transpose function parameters into column vectors
+    %%% kp %%%
+    % Desired joint kp values (valid only if use position control)
+    % Order and dimension same as q
+
+    %%% kd %%%
+    % Desired joint kd values (valid only if use position control)
+    % Order and dimension same as q
+
+     %% transpose function parameters into column vectors
     v = v'; omega = omega'; quat = quat'; q = q'; dq = dq';
     
     %% model parameters
     INIT_QUAT = [1; 0; 0; 0];
 
-    g = 9.81;                   % acceleration due to gravity [m/s^2]
-    m = 108/g;                  % body mass [kg]
-    m = 11.5;
-    Ib = [0.24,    0, 0;
-             0, 0.80, 0;
-             0,    0, 1];       % body inertia in body frame [kg*m^2]
-    I = I_hat(Ib, quat);        % body inertia in world frame [kg*m^2]
+    g = [0; 0; 9.81];           % acceleration due to gravity [m/s^2]
+    m = 108/9.81;               % body mass [kg]
+    mu = 0.8;                   % friction coefficient
 
     global HIP_OFFSETS INIT_POS
     INIT_POS = [0; 0; 0.2829];
@@ -122,114 +125,61 @@ function [out,use_torque,kp,kd] = MPC(t,v,omega,quat,q,dq,foot_contact)
         % reverse hip abduction for right leg
         swing_joint_pos(1) = -swing_joint_pos(1);
     end
+    
+    %% state and desired state
+    % COM positions and body orientations
+    rc_d = [pos(1) + dx; pos(2); pos(3)];
+    drc_d = [v_des; 0; 0];
+    R_d = eye(3);
+    Omega_d = zeros(3,1);
 
-    %% dynamics
-    R = quaternion_to_rotm(quat);
-    foot_pos = foot_positions_in_base_frame(q);
-    p0FR = foot_pos(1,:); p1FL = foot_pos(2,:);
-    p2RR = foot_pos(3,:); p3RL = foot_pos(4,:);
+    rc = pos;
+    drc = v;
+    Rb = quaternion_to_rotm(quat);
+    Omega = Rb*omega;
 
-    A = [zeros(3), zeros(3),       R', zeros(3);
-         zeros(3), zeros(3), zeros(3),   eye(3);
-         zeros(3), zeros(3), zeros(3), zeros(3);
-         zeros(3), zeros(3), zeros(3), zeros(3)];
-    B = [        zeros(3),         zeros(3),         zeros(3),         zeros(3);
-                 zeros(3),         zeros(3),         zeros(3),         zeros(3);
-         inv(I)*hat(p0FR), inv(I)*hat(p1FL), inv(I)*hat(p2RR), inv(I)*hat(p3RL);
-                 eye(3)/m,         eye(3)/m,         eye(3)/m,         eye(3)/m];
+    %% 1) stabilizing wrench at COM (F_d)
+    % proportional and differential gain
+    kh = 900*10; kv = 3000*10; Kp = diag([kh kh kv]);
+    dh = sqrt(m*kh)*2*0.8; dv = sqrt(m*kv)*2*0.2; Kd = diag([dh dh dv]);
+    f_d = -Kp*(rc - rc_d) - Kd*(drc - drc_d) + m*g;     % + m*ddrc_d;
 
-    % state-space form with additional gravity state
-    % x = [theta; p; omega; pdot] --> x = [theta; p; omega; pdot; g]
-    Ac = zeros(13); Bc = zeros(13,12);
-    Ac(1:12,1:12) = A; Bc(1:12,1:12) = B; Ac(12,13) = -1;
+    Kr = 100*10; Dr = 50*10;           % rotational stiffness and damping
+    Rdb = R_d'*Rb; Rwb = Rb;
+    delta = quat(4); epsilon = quat(1:3);
+    tau_r = -2*(delta*eye(3) + hat(epsilon))*Kr*epsilon;
+    % error definition 1: quaternion
+    tau_d = Rwb*(tau_r - Dr*(Omega - Omega_d));
+    F_d = [f_d; tau_d];
 
-    % nonlinear MPC state functions
-    % QuadrupedStateFcn = @(x, u) Ac*x + Bc*u;
-    % QuadrupedStateJacobianFcn = @(x0, u0) deal(numerical_Jacobian(Ac, Bc, x0, u0));
+    %% 2) contact forces to produce desired wrench (fc)
+    Gc = contact_grasp_map(q);
 
-    %% state vector and desired state
-    % state
-    omega = R*omega;
-    euler = quaternion_to_euler(quat);
-    x = [euler; pos; omega; v; g];
+    n = 10;                             % friction cone pyramid, # sides           
+    nj_mat = nj_matrix(n, mu);          % friction cone normal vectors
 
-    COM_des = [pos(1)+dx; 0; INIT_POS(3)];
-    % mostly interested in moving forward along X, other errors can be ignored
-    % can choose to weight only linear velocity instead of position
-    x_des = [zeros(3,1); COM_des; zeros(3,1); [v_des; 0; 0]; g];
-    nlobj.Weights.OutputVariables = ...
-        [[0.1, 0.1, 0.1] [0, 0, 0.5] [0.1, 0.1, 0.1] [1, 0.5, 0.5] 0];
-    nlobj.Weights.ManipulatedVariablesRate = 0.1*ones(1,12);
-
-    %% MPC control, run through dynamics to get contact forces
-    % nx = 13;                    % number of states
-    % ny = 13;                    % number of outputs
-    % nu = 12;                    % number of inputs
-    % nlobj = nlmpc(nx, ny, nu);  % nonlinear MPC object
-    % 
-    % % specify state function and Jacobian state function
-    % nlobj.Model.StateFcn = @(x, u) QuadrupedStateFcn(x, u);
-    % nlobj.Jacobian.StateFcn = @(x0, u0) QuadrupedStateJacobianFcn(x0, u0);
-    % nlobj.Jacobian.StateFcn = @(x, u) QuadrupedStateFcn(x, u);
-    % 
-    % % specify sample time [s], prediction horizon [steps], control horizon [steps]
-    % nlobj.Ts = 0.1;
-    % nlobj.PredictionHorizon = 18;
-    % nlobj.ControlHorizon = 2;
-    % 
-    % % eliminate contact force from swing foot
-    % min_lim = [repmat({-inf},12,1)];
-    % max_lim = [repmat({inf},12,1)];
-    % 
-    % ind = sw_ft_id + 1; ind = ind + 2*(ind-1);
-    % min_lim(ind:ind+2) = {0}; max_lim(ind:ind+2) = {0};
-    % 
-    % nlobj.MV = struct('Min', min_lim, 'Max', max_lim);
-    % 
-    % % ground contact constraints
-    % nlobj.Optimization.CustomIneqConFcn = @groundContactIneqConFcn;
-    % 
-    % global lastMV
-    % if (t == 0)
-    %     lastMV = repmat([0;0;m*g/4],4,1);
-    % end
-    % x_des = [zeros(3,1); [0; 0; 0.32]; zeros(3,1); [0; 0; 0]; g];
-    % [uk,~,~] = nlmpcmove(nlobj, x, lastMV, x_des', []);
-    % lastMV = uk;
-    % fc = uk;                    % optimal contact forces
-
-    C = eye(13); D = zeros(13,12);
-    QuadPlant = ss(Ac,Bc,C,D,-1);   % discrete-time dynamics
-    mpcobj = mpc(QuadPlant);        % nonlinear MPC object
-
-    % specify sample time [s], prediction horizon [steps], control horizon [steps]
-    mpcobj.Ts = 0.02;
-    mpcobj.PredictionHorizon = 20;
-    mpcobj.ControlHorizon = 2;
-
-    % eliminate contact force from foot
-    min_lim = [repmat({-inf},12,1)];
-    max_lim = [repmat({inf},12,1)];
-
+    A = zeros(4,12); A(sub2ind(size(A),1:4,3:3:12)) = -1;
+    b = zeros(4,1);                     % unilateral constraint fi_z >= 0
+    A = [A; -nj_mat];
+    b = [b; zeros(n*4,1)];              % friction cone constraint
+    Aeq = []; beq = [];
+    % instead of using equality constraint (Aeq*x = beq; Gc*fc = F_d),
+    % add ||F_d - Gc*fc||^2 to the cost function with weights prioritizing:
+    % getting correct f_d >> getting correct tau_d >>  minimizing ||fc||^2 
+    a1 = 10; a2 = 1; a3 = 0.01;         % a1 >> a2 >> a3
+    A1 = [eye(3) zeros(3)];             % extract forces:  [I 0] ||F_d - Gc*fc||^2
+    A2 = [zeros(3) eye(3)];             % extract torques: [0 I] ||F_d - Gc*fc||^2
+    Gc1 = A1*Gc; F_d1 = A1*F_d; Gc2 = A2*Gc; F_d2 = A2*F_d; 
+    H = Gc1'*Gc1*2*a1 + Gc2'*Gc2*2*a2 + a3*2*eye(12);
+    f = (-2*a1*F_d1'*Gc1)' + (-2*a2*F_d2'*Gc2)' + a3*zeros(12,1);
+    x0 = []; options =  optimset('Display','off');
+    lb = -inf*ones(12,1); ub = inf*ones(12,1);
     ind = sw_ft_id + 1; ind = ind + 2*(ind-1);
-    min_lim(ind:ind+2) = {0}; max_lim(ind:ind+2) = {0};
+    lb(ind:ind+2) = 0; ub(ind:ind+2) = 0;
+    fc = quadprog(H,f,A,b,Aeq,beq,...
+        lb,ub,x0,options);              % min 0.5*x'*H*x + f'*x
 
-    mpcobj.ManipulatedVariables = struct('Min', min_lim, 'Max', max_lim);
-
-    % variable weights
-    mpcobj.Weights.OutputVariables = ...
-        [[0.1, 0.1, 0.1] [0, 0, 0.5] [0.1, 0.1, 0.1] [1, 0.5, 0.5] 0];
-    mpcobj.Weights.ManipulatedVariablesRate = 0.1*ones(1,12);
-
-    % ground contact constraints
-    setGroundContactConstraints(mpcobj);
-
-    xc = mpcstate(mpcobj);
-    x_des = [zeros(3,1); [0; 0; 0.32]; zeros(3,1); [0; 0; 0]; g];
-    uk = mpcmove(mpcobj, xc, x, x_des);
-    fc = uk;                        % optimal contact forces
-
-    %% convert contact forces to joint torques with Jacobian
+    %% 3) motor torques to produce desired contact forces (tau)
     J = cell(4,1);
     for leg_id = 0:3
         J{leg_id+1} = ComputeJacobian(leg_id, q);
@@ -243,7 +193,7 @@ function [out,use_torque,kp,kd] = MPC(t,v,omega,quat,q,dq,foot_contact)
 
     % swing trajectory PD controller, convert joint angles to torques
     ind = sw_ft_id + 1; ind = ind + 2*(ind-1);
-    kp = 100; kd = 1;
+    kp = 100; kd = 10;
     sw_tau = ...
         -kp*(q(ind:ind+2) - swing_joint_pos') - kd*(dq(ind:ind+2) - zeros(3,1));
 
@@ -263,8 +213,6 @@ function [out,use_torque,kp,kd] = MPC(t,v,omega,quat,q,dq,foot_contact)
     out = tau';
 end
 
-%% controller helper functions
-
 % computes rotation matrix from quaternion
 function rotm = quaternion_to_rotm(quat)
     q0 = quat(4); q1 = quat(1); q2 = quat(2); q3 = quat(3);
@@ -274,113 +222,19 @@ function rotm = quaternion_to_rotm(quat)
               2*(q1*q3-q0*q2),   2*(q2*q3+q0*q1), 2*(q0*q0+q3*q3)-1];
 end
 
-% computes quaternion from Euler angles, euler = [yaw pitch roll]
-function quat = euler_to_quaternion(euler)
-    yaw = euler(1); pitch = euler(2); roll = euler(3);
-    y = yaw; p = pitch; r = roll;   % rotation sequence: yaw-pitch-roll
-
-    qx = sin(r/2)*cos(p/2)*cos(y/2) - cos(r/2)*sin(p/2)*sin(y/2);
-    qy = cos(r/2)*sin(p/2)*cos(y/2) + sin(r/2)*cos(p/2)*sin(y/2);
-    qz = cos(r/2)*cos(p/2)*sin(y/2) - sin(r/2)*sin(p/2)*cos(y/2);
-    qw = cos(r/2)*cos(p/2)*cos(y/2) + sin(r/2)*sin(p/2)*sin(y/2);
-
-    % qw = scalar component, [qx; qy; qz] = vector component
-    quat = [qx; qy; qz; qw];        % quat = w + xi + yj + zk
-end
-
-% computes Euler angles from quaternion
-function euler = quaternion_to_euler(quat)
-    w = quat(4); x = quat(1); y = quat(2); z = quat(3);
-
-    t0 = 2*(w*x + y*z);
-    t1 = 1 - 2*(x*x + y*y);
-    roll_x = atan2(t0, t1);
- 
-    t2 = 2*(w*y - z*x);
-    t2 = min(1, max(-1, t2));
-    pitch_y = asin(t2);
- 
-    t3 = 2*(w*z + x*y);
-    t4 = 1 - 2*(y*y + z*z);
-    yaw_z = atan2(t3, t4);
- 
-    euler = [yaw_z; pitch_y; roll_x];
-end
-
-% approximate inertia in world frame from body inertia in body frame
-function I = I_hat(I_body, quat)
-    R = quaternion_to_rotm(quat);
-    I = R* I_body * R';
-
-    % small roll and pitch angles approximation
-    % euler = quaternion_to_euler(quat); yaw = euler(3);
-    % Ryaw  = @(y) [cos(y) sin(y) 0; -sin(y) cos(y) 0; 0 0 1]';
-    % I = Ryaw(yaw) * I_body * Ryaw(yaw)';
+% computes contact grasp map
+function Gc = contact_grasp_map(q)
+    foot_pos = foot_positions_in_base_frame(q);
+    p0FR = foot_pos(1,:); p1FL = foot_pos(2,:);
+    p2RR = foot_pos(3,:); p3RL = foot_pos(4,:);
+    Gc = [   eye(3),    eye(3),    eye(3),    eye(3);
+          hat(p0FR), hat(p1FL), hat(p2RR), hat(p3RL)];
 end
 
 % computes hat map of vector
 function x_hat = hat(x)
     x_hat = [0 -x(3) x(2); x(3) 0 -x(1); -x(2) x(1) 0];
     % x_hat = skew(x);
-end
-
-% calculate numerical Jacobian of state function
-function [A_jac, B_jac] = numerical_Jacobian(A, B, x0, u0)
-    % Jacobian functor
-    J = @(x, h, F) (F(repmat(x,size(x'))+diag(h))-F(repmat(x,size(x'))))./h';
-
-    % state functions
-    f1 = @(x) A*x;      % + constant B*u (for constant u)
-    f2 = @(u) B*u;      % + constant A*x (for constant x)
-
-    % points at which to estimate Jacobian
-    % x0, u0
-
-    % step to take on each dimension (has to be small enough for precision)
-    h_x = 1e-5*ones(size(x0));
-    h_u = 1e-5*ones(size(u0));
-
-    % Compute the jacobian
-    A_jac = J(x0, h_x, f1);
-    B_jac = J(u0, h_u, f2);
-end
-
-% set ground contact constraints for linear MPC object
-function setGroundContactConstraints(mpcobj)
-    mu = 0.8;                           % friction coefficient
-    n = 10;                             % friction cone pyramid, # sides           
-    nj_mat = nj_matrix(n, mu);          % friction cone normal vectors
-
-    A = zeros(4,12);
-
-    % unilateral constraint fi_z >= 0
-    A(sub2ind(size(A),1:4,3:3:12)) = -1;
-
-    % friction cone constraint
-    A = [A; -nj_mat];
-
-    E = A;
-    n = size(E,1);
-    F = zeros(n,13);
-    G = zeros(n,1);
-    setconstraint(mpcobj,E,F,G);
-end
-
-% inequality function for MPC, ground contact constraints
-function cineq = groundContactIneqConFcn(X,U,e,data)
-    mu = 0.8;                           % friction coefficient
-    n = 10;                             % friction cone pyramid, # sides           
-    nj_mat = nj_matrix(n, mu);          % friction cone normal vectors
-
-    A = zeros(4,12);
-
-    % unilateral constraint fi_z >= 0
-    A(sub2ind(size(A),1:4,3:3:12)) = -1;
-
-    % friction cone constraint
-    A = [A; -nj_mat];
-
-    cineq = A*U';
 end
 
 % computes normal vectors for friction cone pyramid approximation

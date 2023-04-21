@@ -56,6 +56,7 @@ function [out,use_torque] = contact_force_control(t,v,omega,quat,q,dq,foot_conta
 
     g = [0; 0; 9.81];           % acceleration due to gravity [m/s^2]
     m = 108/9.81;               % body mass [kg]
+    m = 11.5;
     mu = 0.8;                   % friction coefficient
 
     global HIP_OFFSETS INIT_POS
@@ -140,11 +141,11 @@ function [out,use_torque] = contact_force_control(t,v,omega,quat,q,dq,foot_conta
 
     %% 1) stabilizing wrench at COM (F_d)
     % proportional and differential gain
-    kh = 900*10; kv = 3000*10; Kp = diag([kh kh kv]);
+    kh = 900; kv = 3000; Kp = diag([kh kh kv]);
     dh = sqrt(m*kh)*2*0.8; dv = sqrt(m*kv)*2*0.2; Kd = diag([dh dh dv]);
     f_d = -Kp*(rc - rc_d) - Kd*(drc - drc_d) + m*g;     % + m*ddrc_d;
 
-    Kr = 100*10; Dr = 50*10;           % rotational stiffness and damping
+    Kr = 100; Dr = 50;           % rotational stiffness and damping
     Rdb = R_d'*Rb; Rwb = Rb;
     delta = quat(4); epsilon = quat(1:3);
     tau_r = -2*(delta*eye(3) + hat(epsilon))*Kr*epsilon;
@@ -193,7 +194,7 @@ function [out,use_torque] = contact_force_control(t,v,omega,quat,q,dq,foot_conta
 
     % swing trajectory PD controller, convert joint angles to torques
     ind = sw_ft_id + 1; ind = ind + 2*(ind-1);
-    kp = 100; kd = 10;
+    kp = 100; kd = 1;
     sw_tau = ...
         -kp*(q(ind:ind+2) - swing_joint_pos') - kd*(dq(ind:ind+2) - zeros(3,1));
 

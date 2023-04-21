@@ -1,5 +1,5 @@
 function [out,use_torque,kp,kd] = naive_position_control(t, v)
-    % THIS CONTROLLER DOES NOT WORK WELL
+    % THIS CONTROLLER DOES NOT WORK
     % directly command limb joint angles through gait cycle
     % initial joint angles (rad) = [0 0.9 -1.8];
     init_joint_angles = [-.1, .8, -1.5, ...

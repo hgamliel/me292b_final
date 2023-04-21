@@ -80,6 +80,8 @@ function [out,use_torque,kp,kd] = control(t,v,omega,quat,q,dq,foot_contact)
 
     %% Naive Position Control
     % [out,use_torque,kp,kd] = naive_position_control(t, v);
+    % [out,use_torque,kp,kd] = naive_position_control_2(t);
+    % [out,use_torque,kp,kd] = jump(t);
 
     %% Contact Force Control
     [out,use_torque] = contact_force_control(t,v,omega,quat,q,dq,foot_contact);
