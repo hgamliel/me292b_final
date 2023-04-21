@@ -45,8 +45,7 @@ function [out,use_torque,kp,kd] = MPC(t,v,omega,quat,q,dq,foot_contact)
     v = v'; omega = omega'; quat = quat'; q = q'; dq = dq';
     
     %% model parameters
-    INIT_POS = [0, 0, 0.32];
-    INIT_QUAT = euler_to_quaternion([0 0 0]);
+    INIT_QUAT = [1; 0; 0; 0];
 
     g = 9.81;                   % acceleration due to gravity [m/s^2]
     m = 108/g;                  % body mass [kg]
@@ -55,7 +54,8 @@ function [out,use_torque,kp,kd] = MPC(t,v,omega,quat,q,dq,foot_contact)
              0,    0, 1];       % body inertia in body frame [kg*m^2]
     I = I_hat(Ib, quat);        % body inertia in world frame [kg*m^2]
 
-    global HIP_OFFSETS
+    global HIP_OFFSETS INIT_POS
+    INIT_POS = [0; 0; 0.2829];
     COM_OFFSET = -[0.012731, 0.002186, 0.000515];
     HIP_OFFSETS = [ 0.183, -0.047, 0;
                     0.183,  0.047, 0;
@@ -83,7 +83,6 @@ function [out,use_torque,kp,kd] = MPC(t,v,omega,quat,q,dq,foot_contact)
                       0.1, 0.45, -1.75;
                       0.1,  0.6,  -1.5;
                       0.1,  0.8,  -1.5];
-        swing_traj = repmat([0.1, 0.8, -1.5],4,1);
         tf = 0.5;               % time to take one step [s]
         swing_t_steps = linspace(0, tf, size(swing_traj,1))';
     end
@@ -120,7 +119,7 @@ function [out,use_torque,kp,kd] = MPC(t,v,omega,quat,q,dq,foot_contact)
         interp1(swing_t_steps, swing_traj, swing_time_elapsed, 'pchip');
     if mod(sw_ft_id, 2) == 0
         % reverse hip abduction for right leg
-        swing_joint_pos(1) = -swing_joint_pos;
+        swing_joint_pos(1) = -swing_joint_pos(1);
     end
 
     %% dynamics
@@ -153,7 +152,7 @@ function [out,use_torque,kp,kd] = MPC(t,v,omega,quat,q,dq,foot_contact)
     euler = quaternion_to_euler(quat);
     x = [euler; pos; omega; v; g];
 
-    COM_des = [pos(1)+dx; 0; 0.32];
+    COM_des = [pos(1)+dx; 0; INIT_POS(3)];
     % mostly interested in moving forward along X, other errors can be ignored
     % can choose to weight only linear velocity instead of position
     x_des = [zeros(3,1); COM_des; zeros(3,1); [v_des; 0; 0]; g];
@@ -211,8 +210,8 @@ function [out,use_torque,kp,kd] = MPC(t,v,omega,quat,q,dq,foot_contact)
     min_lim = [repmat({-inf},12,1)];
     max_lim = [repmat({inf},12,1)];
 
-    % ind = sw_ft_id + 1; ind = ind + 2*(ind-1);
-    % min_lim(ind:ind+2) = {0}; max_lim(ind:ind+2) = {0};
+    ind = sw_ft_id + 1; ind = ind + 2*(ind-1);
+    min_lim(ind:ind+2) = {0}; max_lim(ind:ind+2) = {0};
 
     mpcobj.ManipulatedVariables = struct('Min', min_lim, 'Max', max_lim);
 
@@ -260,7 +259,7 @@ function [out,use_torque,kp,kd] = MPC(t,v,omega,quat,q,dq,foot_contact)
             tau(10:12) = sw_tau;
     end
     use_torque = true;          % enable torque control
-    out = tau;
+    out = tau';
 end
 
 %% controller helper functions

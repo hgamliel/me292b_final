@@ -1,9 +1,9 @@
 function dx = update_position(t, v, v_des)
     % velocity integrator to get position (x forward, y left, z up)
-    global pos time prev_time
+    global pos time prev_time INIT_POS
     
     if (t == 0) % && ~isempty(pos)
-        pos = [0; 0; 0.32]; % initial position
+        pos = INIT_POS;     % initial position
         prev_time = 0;
     end
 
