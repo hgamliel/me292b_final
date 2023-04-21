@@ -208,13 +208,13 @@ function [out,use_torque,kp,kd] = MPC(t,v,omega,quat,q,dq,foot_contact)
     mpcobj.ControlHorizon = 2;
 
     % eliminate contact force from foot
-    min_lim = [repmat({-inf},12,1)];
-    max_lim = [repmat({inf},12,1)];
+    min_lim = -inf*ones(12,1);
+    max_lim = inf*ones(12,1);
 
-    % ind = sw_ft_id + 1; ind = ind + 2*(ind-1);
-    % min_lim(ind:ind+2) = {0}; max_lim(ind:ind+2) = {0};
+    ind = sw_ft_id + 1; ind = ind + 2*(ind-1);
+    min_lim(ind:ind+2) = 0; max_lim(ind:ind+2) = 0;
 
-    mpcobj.ManipulatedVariables = struct('Min', min_lim, 'Max', max_lim);
+    mpcobj.ManipulatedVariables = struct(Min=min_lim, Max=max_lim);
 
     % variable weights
     mpcobj.Weights.OutputVariables = ...
@@ -226,8 +226,8 @@ function [out,use_torque,kp,kd] = MPC(t,v,omega,quat,q,dq,foot_contact)
 
     xc = mpcstate(mpcobj);
     x_des = [zeros(3,1); [0; 0; 0.32]; zeros(3,1); [0; 0; 0]; g];
-    uk = mpcmove(mpcobj, xc, x, x_des);
-    fc = uk;                        % optimal contact forces
+    uk = mpcmove(mpcobj, xc, x, x_des', []);
+    fc = uk                    % optimal contact forces
 
     %% convert contact forces to joint torques with Jacobian
     J = cell(4,1);

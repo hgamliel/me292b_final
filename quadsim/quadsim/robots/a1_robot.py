@@ -269,7 +269,7 @@ class A1Robot(a1.A1):
     else:
       raise ValueError('Unknown motor control mode for A1 robot: {}.'.format(
           motor_control_mode))
-
+    print(command)
     self._robot_interface.send_command(command)
 
   def Reset(self, reload_urdf=True, default_motor_angles=None, reset_time=3.0):
