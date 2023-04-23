@@ -78,19 +78,12 @@ function [out,use_torque] = contact_force_control(t,v,omega,quat,q,dq,foot_conta
     dx = update_position(t, v, v_des);
 
     % gait: 3 legs in stance, 1 leg in swing
-    global swing_time_start gait_phase swing_traj swing_t_steps
+    global swing_time_start gait_phase
     if (t == 0)
         swing_time_start = 0;
         gait_phase = 0;         % footfall order: 0:RL, 1:FL, 2:RR, 3:FR
-
-        swing_traj = [0.1,  0.8,  -1.5;
-                      0.1,  0.8,    -2;
-                      0.1, 0.45, -1.75;
-                      0.1,  0.6,  -1.5;
-                      0.1,  0.8,  -1.5];
-        tf = 0.5;               % time to take one step [s]
-        swing_t_steps = linspace(0, tf, size(swing_traj,1))';
     end
+    tf = 0.5;                   % time to take one step [s]
 
     % leg_id: Leg0 FR, Leg1 FL, Leg2 RR, Leg3 RL
     switch gait_phase
@@ -104,28 +97,36 @@ function [out,use_torque] = contact_force_control(t,v,omega,quat,q,dq,foot_conta
             sw_ft_id = 0;
     end
 
+    %% determine swing trajectory
     % if minimum swing time has passed and swing foot is back on ground
     swing_time_elapsed = t - swing_time_start;
-    if (swing_time_elapsed > 0.05) && (foot_contact(sw_ft_id+1) == 1)
+    if (swing_time_elapsed > tf/2) && (foot_contact(sw_ft_id+1) == 1)
         gait_phase = mod(gait_phase+1, 4);
         swing_time_start = t;
-
-        ind = sw_ft_id + 1; ind = ind + 2*(ind-1);
-        sw_joint_pos0 = q(ind:ind+2);
-        swing_traj = [sw_joint_pos0';
-                      0.1,  0.8,    -2;
-                      0.1, 0.45, -1.75;
-                      0.1,  0.6,  -1.5;
-                      0.1,  0.8,  -1.5];
     end
 
-    % joint angles during swing phase
-    swing_joint_pos = ...
-        interp1(swing_t_steps, swing_traj, swing_time_elapsed, 'pchip');
-    if mod(sw_ft_id, 2) == 0
-        % reverse hip abduction for right leg
-        swing_joint_pos(1) = -swing_joint_pos(1);
+    % swing and stance positions of all feet in hip frame
+    ft_pos_st_H = foot_positions_in_base_frame(init_joint_angles) - HIP_OFFSETS;
+    ft_pos_sw_H = ft_pos_st_H; ft_pos_sw_H(:,end) = -0.1;
+
+    % move swing foot based on time passed in step cycle
+    ind = sw_ft_id + 1;
+    if swing_time_elapsed < tf/2            % move swing foot up
+        sw_pos_goal = ft_pos_sw_H(ind,:);
+    elseif swing_time_elapsed >= tf/2       % place swing foot down
+        % ending height should match height of foot on same side
+        same_side_ft_idx = mod(sw_ft_id+2,4) + 1;
+        curr_ft_pos_H = foot_positions_in_base_frame(q) - HIP_OFFSETS;
+        hght = curr_ft_pos_H(same_side_ft_idx,end);
+
+        sw_pos_goal = ft_pos_st_H(ind,:); sw_pos_goal(3) = hght;
     end
+
+    % reverse hip direction if right leg
+    l_hip_sign = (-1)^(sw_ft_id + 1);
+    % desired joint angles for swing foot
+    sw_joint_goal = ...
+        foot_position_in_hip_frame_to_joint_angle(sw_pos_goal, l_hip_sign);
     
     %% state and desired state
     % COM positions and body orientations
@@ -194,9 +195,9 @@ function [out,use_torque] = contact_force_control(t,v,omega,quat,q,dq,foot_conta
 
     % swing trajectory PD controller, convert joint angles to torques
     ind = sw_ft_id + 1; ind = ind + 2*(ind-1);
-    kp = 100; kd = 1;
+    kp = 1000; kd = 0;
     sw_tau = ...
-        -kp*(q(ind:ind+2) - swing_joint_pos') - kd*(dq(ind:ind+2) - zeros(3,1));
+        -kp*(q(ind:ind+2) - sw_joint_goal') - kd*(dq(ind:ind+2) - zeros(3,1));
 
     % output correct torques
     sw_tau = zeros(3,1);

@@ -211,8 +211,8 @@ function [out,use_torque,kp,kd] = MPC(t,v,omega,quat,q,dq,foot_contact)
     min_lim = [repmat({-inf},12,1)];
     max_lim = [repmat({inf},12,1)];
 
-    ind = sw_ft_id + 1; ind = ind + 2*(ind-1);
-    min_lim(ind:ind+2) = {0}; max_lim(ind:ind+2) = {0};
+    % ind = sw_ft_id + 1; ind = ind + 2*(ind-1);
+    % min_lim(ind:ind+2) = {0}; max_lim(ind:ind+2) = {0};
 
     mpcobj.ManipulatedVariables = struct('Min', min_lim, 'Max', max_lim);
 
@@ -224,9 +224,14 @@ function [out,use_torque,kp,kd] = MPC(t,v,omega,quat,q,dq,foot_contact)
     % ground contact constraints
     setGroundContactConstraints(mpcobj);
 
-    xc = mpcstate(mpcobj);
+    global lastMV
+    if (t == 0)
+        lastMV = repmat([0;0;m*g/4],4,1);
+    end
+    xc = mpcstate(mpcobj, x, [], [], lastMV);
     x_des = [zeros(3,1); [0; 0; 0.32]; zeros(3,1); [0; 0; 0]; g];
     uk = mpcmove(mpcobj, xc, x, x_des);
+    lastMV = uk;
     fc = uk;                        % optimal contact forces
 
     %% convert contact forces to joint torques with Jacobian

@@ -13,12 +13,18 @@ from quadsim.robots import robot_config
 USE_REAL_ROBOT: bool = False
 USE_MATLAB: bool = True
 DT: float = .002  # [s]
-SIM_DURATION: float = 2.  # [s]
+SIM_DURATION: float = 2.5  # [s]
 DEFUALT_JOINT_POS: np.ndarray = np.array([
     -.1, .8, -1.5,
     .1, .8, -1.5,
     -.1, .8, -1.5,
     .1, .8, -1.5
+])
+DEFUALT_JOINT_POS: np.ndarray = np.array([
+    0., .8234, -1.6468,
+    0., .8234, -1.6468,
+    0., .8234, -1.6468,
+    0., .8234, -1.6468
 ])
 TORQUE_LIMIT: np.ndarray = np.array([
     20., 55., 55.,

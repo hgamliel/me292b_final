@@ -1,4 +1,4 @@
-function [out,use_torque,kp,kd] = naive_position_control(t, v)
+function [out,use_torque,kp,kd] = naive_position_control(t)
     % THIS CONTROLLER DOES NOT WORK
     % directly command limb joint angles through gait cycle
     % initial joint angles (rad) = [0 0.9 -1.8];
@@ -16,15 +16,19 @@ function [out,use_torque,kp,kd] = naive_position_control(t, v)
     % front = [0.1, 0.8-0.15, -1.5-0.15];
     % down = [0.1, 0.8, -1.5];
     % back = [0.1, 0.8+0.1, -1.5+0.15];
+    up = [0.1, 0.6, -1.5];
+    front = [0.1, 0.1, -1.3];
+    down = [0.1, 0.1, -0.52];
+    back = [0.1, 0.35, -0.6];
 
     % time interval for each phase
-    DelT = 0.1;
+    DelT = 0.25;
     state = mod(floor(t/DelT),4);
 
     % display estimated position over time
-    global pos
-    v_des = 0.1;                % desired forward velocity [m/s]
-    update_position(t, v, v_des);
+    % global pos
+    % v_des = 0.1;                % desired forward velocity [m/s]
+    % update_position(t, v', v_des);
 
     % set joint angles
     out = zeros(1,12);
@@ -52,8 +56,8 @@ function [out,use_torque,kp,kd] = naive_position_control(t, v)
     %    -.1, .8, -2.35, ...
     %     .1, .8, -2.35];
     use_torque = false;
-    kp = 100*ones(1,12);
-    kd = 0*ones(1,12);
+    kp = 50*ones(1,12);
+    kd = 1*ones(1,12);
 
     % attempt to make the robot jump
     % out = [-.1, .8, 0, ...

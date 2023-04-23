@@ -81,10 +81,15 @@ function [out,use_torque,kp,kd] = control(t,v,omega,quat,q,dq,foot_contact)
     %% Naive Position Control
     % [out,use_torque,kp,kd] = naive_position_control(t, v);
     % [out,use_torque,kp,kd] = naive_position_control_2(t);
-    % [out,use_torque,kp,kd] = jump(t);
+
+    %% Jump
+    % [out,use_torque,kp,kd] = jump(t,foot_contact);
+
+    %% use joint trajectories from RL Toolbox quadruped example
+    [out, use_torque, kp, kd] = joint_pos_from_RL_control(t);
 
     %% Contact Force Control
-    [out,use_torque] = contact_force_control(t,v,omega,quat,q,dq,foot_contact);
+    % [out,use_torque] = contact_force_control(t,v,omega,quat,q,dq,foot_contact);
 
     %% Model Predictive Control
     % [out,use_torque] = MPC(t,v,omega,quat,q,dq,foot_contact);
