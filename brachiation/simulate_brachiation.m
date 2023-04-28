@@ -13,13 +13,13 @@ function simulate_brachiation(u_array, T_release)
     tau_max = 500;              % actuator torque limit [N*m]
 
     % stance initial conditions: q = [th1; th2]
-    q0 = [-2.3072 + deg2rad(90); -1.6271];
+    q0 = [-2.3072 + deg2rad(90); -2.3072 + deg2rad(90) - 1.6271];
     dq0 = [0; 0];
     s0 = [q0; dq0];
     
     % simulate stance dynamics before release
     options = odeset('Events', @(t, s) release_event(t, s, T_release));
-    Tf = 3; Tspan = [0 Tf]; param.Tf = Tf;
+    Tf = 2.5; Tspan = [0 Tf]; param.Tf = Tf;
     [stance_t, stance_s] = ...
         ode45(@(t, s) stance_dynamics(t, s, param), Tspan, s0, options);
 

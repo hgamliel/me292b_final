@@ -27,6 +27,24 @@ function objcost = obj_brachiation(stance_s, flight_s, param)
     th1f = flight_s(end,3);
     rot_ang = abs(th1f - th10);
 
+    %% goal 3: periodic gait constraint (optional)
+    % start and end in mirrored configuration
+    th10 = stance_s(1,1); th1f = flight_s(end,3);
+    th20 = stance_s(1,2); th2f = flight_s(end,4);
+
+    th1_goal = deg2rad(180) - abs(th20);
+    th2_goal = deg2rad(180) - abs(th10);
+
+    th1_diff = mod(abs(th1f-th1_goal), 2*pi);
+    th2_diff = mod(abs(th2f-th2_goal), 2*pi);
+
+    % (start and) end with zero angular velocity
+    dth1f = flight_s(end,7);
+    dth2f = flight_s(end,8);
+
+    th_diff = th1_diff + th2_diff;
+    dth = dth1f + dth2f;
+
     %% cost function
     % energy cost J
     % u_norm2 = vecnorm(uData,2,2).^2;
@@ -40,11 +58,5 @@ function objcost = obj_brachiation(stance_s, flight_s, param)
     %     display(var_fncount);
     %     save;
     % end
-
-    %% constraints (add in separate function?)
-    % start and end in mirrored configuration? not needed if we're not
-    % looking for periodic gait
-    % make T_release another parameter to optimize for, separate from the
-    % input u
 
 end
