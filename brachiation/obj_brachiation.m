@@ -1,4 +1,4 @@
-function objcost = obj_brachiation(stance_s, flight_s, param)
+function objcost = obj_brachiation(u_array, stance_s, flight_s, flight_t, param)
     %% goal 1: reach target
     targetPos = param.targetPos;    % position of target branch
 
@@ -23,40 +23,19 @@ function objcost = obj_brachiation(stance_s, flight_s, param)
     dist = min(vecnorm(pos2-targetPos, 2, 2));
 
     %% goal 2: do a backflip
-    th10 = stance_s(1,1);
-    th1f = flight_s(end,3);
-    rot_ang = abs(th1f - th10);
+    th20 = flight_s(1,4);           % th2 at release
+    th2f = flight_s(end,4);
+    rot_ang = abs(th2f - th20);
 
-    %% goal 3: periodic gait constraint (optional)
-    % start and end in mirrored configuration
-    th10 = stance_s(1,1); th1f = flight_s(end,3);
-    th20 = stance_s(1,2); th2f = flight_s(end,4);
-
-    th1_goal = deg2rad(180) - abs(th20);
-    th2_goal = deg2rad(180) - abs(th10);
-
-    th1_diff = mod(abs(th1f-th1_goal), 2*pi);
-    th2_diff = mod(abs(th2f-th2_goal), 2*pi);
-
-    % (start and) end with zero angular velocity
-    dth1f = flight_s(end,7);
-    dth2f = flight_s(end,8);
-
-    th_diff = th1_diff + th2_diff;
-    dth = dth1f + dth2f;
-
+    %% goal 3: minimize energy cost
+    n = param.n; Tf = param.Tf;
+    times = linspace(0, flight_t(end), n);
+    u_norm2 = vecnorm(u_array,2,2).^2;
+    u_norm2_vals = interp1(linspace(0, Tf, n), u_norm2, times);
+    u_int = trapz(times, u_norm2_vals);
+    
     %% cost function
-    % energy cost J
-    % u_norm2 = vecnorm(uData,2,2).^2;
-    % xT_I = sData(end,1);
-    % objcost = (1/xT_I)*trapz(tData,u_norm2);
-    % objcost = dist + -rot_ang; % add weights
-
-    % var_fncount = var_fncount + 1;
-    % % display function count and save iteration details
-    % if mod(var_fncount,400)==0
-    %     display(var_fncount);
-    %     save;
-    % end
+    a1 = 10; a2 = 1; a3 = 0.1;          % cost function weights
+    objcost = a1*dist + a2*-rot_ang + a3*u_int;
 
 end

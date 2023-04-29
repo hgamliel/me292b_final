@@ -1,16 +1,26 @@
-function simulate_brachiation(u_array, T_release)
+function objcost = simulate_brachiation(x, param_animate)
+    % no input arguments
     if nargin == 0
         n = 500;                % points in time
-        u_array = zeros(n,2);   % input torques
         T_release = 1;          % time of release [s]
+        u_array = zeros(n,2);   % input torques
+        param_animate = true;
+    % T_release and u_array specified as vector x
+    elseif nargin == 1
+        T_release = x(1);
+        n = round(length(x(2:end))/2);
+        u_array = reshape(x(2:end), n, 2);
+        param_animate = false;
     else
-        n = length(u_array);
+    % T_release and u_array specified as vector x, input 2nd parameter to animate
+        T_release = x(1);
+        n = round(length(x(2:end))/2);
+        u_array = reshape(x(2:end), n, 2);
+        param_animate = true;
     end
     targetPos = [3 0];          % position of target branch
     % RL paper: exponential distance reward, terminate early
     param.n = n; param.u_array = u_array; param.targetPos = targetPos;
-
-    tau_max = 500;              % actuator torque limit [N*m]
 
     % stance initial conditions: q = [th1; th2]
     q0 = [-2.3072 + deg2rad(90); -2.3072 + deg2rad(90) - 1.6271];
@@ -19,20 +29,27 @@ function simulate_brachiation(u_array, T_release)
     
     % simulate stance dynamics before release
     options = odeset('Events', @(t, s) release_event(t, s, T_release));
-    Tf = 2.5; Tspan = [0 Tf]; param.Tf = Tf;
+    Tf = 10; Tspan = [0 Tf]; param.Tf = Tf;
     [stance_t, stance_s] = ...
         ode45(@(t, s) stance_dynamics(t, s, param), Tspan, s0, options);
 
     % simulate flight dynamics after release
     % hand/pivot at release: x = y = dx = dy = 0
     s0 = [[0; 0; stance_s(end,1:2)']; [0; 0; stance_s(end,3:4)']];
+    options = odeset('Events', @(t, s) flight_event(t, s, targetPos));
     Tspan = [stance_t(end) Tf];
     [flight_t, flight_s] = ...
-        ode45(@(t, s) flight_dynamics(t, s, param), Tspan, s0);
+        ode45(@(t, s) flight_dynamics(t, s, param), Tspan, s0, options);
     
-    axis_limits = [-2 4 -3 3]; param.axis_limits = axis_limits;
-    animate_brachiation(stance_t, stance_s, flight_t, flight_s, param);
-    % movie_brachiation(stance_t, stance_s, flight_t, flight_s, param);
+    % animation
+    if param_animate == true
+        axis_limits = [-2 4 -3 3]; param.axis_limits = axis_limits;
+        animate_brachiation(stance_t, stance_s, flight_t, flight_s, param);
+        % movie_brachiation(stance_t, stance_s, flight_t, flight_s, param);
+    end
+
+    % cost function
+    objcost = obj_brachiation(u_array, stance_s, flight_s, flight_t, param);
 end
 
 function ds = stance_dynamics(t, s, param)
@@ -58,8 +75,21 @@ function [value, isterminal, direction] = release_event(t, s, T_release)
     direction = 1;              % zero crossing from negative to postive
 end
 
+function [value, isterminal, direction] = flight_event(t, s, targetPos)
+    % detect if hand has reached target branch
+    p2 = flight_p2_gen(s)'; dist = norm(p2 - targetPos); tol = 0.01;
+
+    % detect multiple events: end simulation if robot falls out of bounds
+    p2x = p2(1); p2y = p2(2); LB = -4; UB = 4;
+    p2x_check = min(max(p2x, LB), UB); p2y_check = min(max(p2y, LB), UB);
+
+    value = [dist - tol; abs(p2x_check) - 4; abs(p2y_check) - 4];
+    isterminal = [1; 1; 1];     % stop when event occurs
+    direction = [-1; 0; 0];     % direction of zero crossing
+end
+
 function animate_brachiation(stance_t, stance_s, flight_t, flight_s, param)
-    Tf = param.Tf; n = round(Tf/0.025); targetPos = param.targetPos;
+    Tf = flight_t(end); n = round(Tf/0.025); targetPos = param.targetPos;
     axis_limits = param.axis_limits;
 
     p0 = []; p1 = []; p2 = [];
@@ -101,7 +131,7 @@ function animate_brachiation(stance_t, stance_s, flight_t, flight_s, param)
 end
 
 function M = movie_brachiation(stance_t, stance_s, flight_t, flight_s, param)
-    Tf = param.Tf; n = round(Tf/0.025); targetPos = param.targetPos;
+    Tf = flight_t(end); n = round(Tf/0.025); targetPos = param.targetPos;
     axis_limits = param.axis_limits;
 
     p0 = []; p1 = []; p2 = [];
