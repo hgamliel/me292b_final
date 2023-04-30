@@ -1,24 +1,21 @@
 % run genetic algorithm
 
-n_torques = 500;                        % number of input torque time steps
-nvars = 1 + n_torques*2;                % number of design variables
+n = 10;                         % number of sum of sines terms
+nvars = 1 + n*6;                % number of design variables
 
-param_animate = false;                  % do not animate
+param_animate = false;          % do not animate
 
 % MATLAB's global optimization toolbox
 A = []; b = []; Aeq = []; beq = []; nonlcon = [];
-tau_max = 500;                              % actuator torque limit [N*m]
-lb = [0, zeros(1,n_torques*2)];             % lower bounds
-ub = [5, tau_max*ones(1,n_torques*2)];      % upper bounds
+lb = [0, -inf*ones(1,n*6)];     % lower bounds
+ub = [5, inf*ones(1,n*6)];      % upper bounds
+
+initPop = [1.7 -1000/n*ones(1,n) zeros(1,n) pi/2*ones(1,n) ...
+    -150/n*ones(1,n) zeros(1,n) pi/2*ones(1,n)];
 
 options = optimoptions('ga', 'Display', 'iter', 'PlotFcn', {@gaplotbestf}, ...
-    'OutputFcn', @save_intermediate_states);
-
-% issues: T_release is one of too many variables, not being well optimized
-% for
-% initial population, one row all zeros
-% less crossover
-% maybe make the u array a polynomial function instead? sine fit function?
+    'OutputFcn', @save_intermediate_states, 'CrossoverFraction', 0.5, ...
+    'PopulationSize', 1000, 'InitialPopulationMatrix', initPop);
 
 [x_optim, fval] = ...
     ga(@simulate_brachiation, nvars, A, b, Aeq, beq, lb, ub, nonlcon, options);
@@ -29,7 +26,7 @@ function [state, options, optchanged] = save_intermediate_states(options, state,
     generation = state.Generation;
     optchanged = false;
 
-    if mod(generation, 100) == 0
+    if mod(generation, 50) == 0
         [~, ind] = min(state.Score);
         x = state.Population(ind,:);
         save(['x_' num2str(generation)]);
