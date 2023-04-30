@@ -1,9 +1,9 @@
 function objcost = simulate_brachiation(x, param_animate)
     if nargin == 0
         % no input arguments, run default values
-        T_release = 1.7;        % time of release [s]
+        T_release = 0.6;        % time of release [s]
         u_coeff = zeros(1,6);   % input torques coefficients
-        u_coeff = [-1000 0 pi/2 -150 0 pi/2];
+        u_coeff = [1000 0 pi/2 10 0 pi/2];
         param_animate = true;
         max_flight_step = 1e-2; % integrate ode45 at finer time step 
     elseif nargin == 1
@@ -24,7 +24,8 @@ function objcost = simulate_brachiation(x, param_animate)
     param.tau_max = 1000;       % actuator torque limit [N*m]
 
     % stance initial conditions: q = [th1; th2]
-    q0 = [-2.3072 + deg2rad(90); -2.3072 + deg2rad(90) - 1.6271];
+    q0 = [-2.3072 + pi/2; -2.3072 + pi/2 - 1.6271];
+    q0 = [-pi/2; -pi/2];        %% CHANGE THIS LATER
     dq0 = [0; 0];
     s0 = [q0; dq0];
     
@@ -46,8 +47,8 @@ function objcost = simulate_brachiation(x, param_animate)
     % animation
     if param_animate == true
         axis_limits = [-2 4 -3 3]; param.axis_limits = axis_limits;
-        animate_brachiation(stance_t, stance_s, flight_t, flight_s, param);
-        % movie_brachiation(stance_t, stance_s, flight_t, flight_s, param);
+        % animate_brachiation(stance_t, stance_s, flight_t, flight_s, param);
+        movie_brachiation(stance_t, stance_s, flight_t, flight_s, param);
 
         plot_torques(flight_t, param);
     end
