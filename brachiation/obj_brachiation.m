@@ -62,7 +62,7 @@ function objcost = obj_brachiation(stance_s, flight_s, flight_t, param)
     u_int = trapz(times, u_norm2);
     
     %% cost function
-    a1 = 100; a2 = 0.01; a3 = 1e-4; % cost function weights
+    a1 = 100; a2 = 0.01; a3 = 1e-5/2;   % cost function weights
     objcost = a1*dist + a2*flip + a3*u_int;
 end
 

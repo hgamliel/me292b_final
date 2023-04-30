@@ -19,7 +19,7 @@ initPop = [0.5 900/n*ones(1,n) zeros(1,n) pi/2*ones(1,n) ...
 options = optimoptions('ga', 'Display', 'iter', 'PlotFcn', {@gaplotbestf}, ...
     'OutputFcn', @save_intermediate_states, 'CrossoverFraction', 0.5, ...
     'PopulationSize', 1000, 'InitialPopulationMatrix', initPop, ...
-    'MaxGenerations', 20);
+    'MaxGenerations', 100);
 
 [x_optim, fval] = ...
     ga(@simulate_brachiation, nvars, A, b, Aeq, beq, lb, ub, nonlcon, options);
@@ -30,9 +30,9 @@ function [state, options, optchanged] = save_intermediate_states(options, state,
     generation = state.Generation;
     optchanged = false;
 
-    if mod(generation, 5) == 0
+    if mod(generation, 25) == 0
         [~, ind] = min(state.Score);
         x = state.Population(ind,:);
-        save(['x_gen' num2str(generation)]);
+        save(['energy_x_gen' num2str(generation)]);
     end
 end
