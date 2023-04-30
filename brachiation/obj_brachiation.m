@@ -2,9 +2,8 @@ function objcost = obj_brachiation(stance_s, flight_s, flight_t, param)
     %% goal 1: reach target
     targetPos = param.targetPos;    % position of target branch
 
-    % positions of either hand
+    % position of either hand
     n = length(stance_s) + length(flight_s);
-    pos0 = zeros(n,2);
     pos2 = zeros(n,2);
 
     for i = 1:length(stance_s)      % stance positions
@@ -30,7 +29,8 @@ function objcost = obj_brachiation(stance_s, flight_s, flight_t, param)
     %% goal 2: do a backflip
     th10 = flight_s(1,3);           % th1 at release
     th1f = flight_s(end,3);
-    rot_ang = abs(th1f - th10);
+    rot_ang = abs(th1f - th10)/(2*pi);
+    flip = abs(rot_ang - 1);        % under/overshoot from one flip
 
     %% goal 3: minimize energy cost
     u_coeff = param.u_coeff;
@@ -62,8 +62,8 @@ function objcost = obj_brachiation(stance_s, flight_s, flight_t, param)
     u_int = trapz(times, u_norm2);
     
     %% cost function
-    a1 = 1; a2 = 0; a3 = 0;     % cost function weights
-    objcost = a1*dist + a2*-rot_ang + a3*u_int;
+    a1 = 100; a2 = 0.01; a3 = 1e-4; % cost function weights
+    objcost = a1*dist + a2*flip + a3*u_int;
 end
 
 % computes input torques from sum of sines

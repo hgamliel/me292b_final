@@ -7,15 +7,19 @@ param_animate = false;          % do not animate
 
 % MATLAB's global optimization toolbox
 A = []; b = []; Aeq = []; beq = []; nonlcon = [];
-lb = [0, -inf*ones(1,n*6)];     % lower bounds
-ub = [5, inf*ones(1,n*6)];      % upper bounds
+lb = [0.01, -inf*ones(1,n*6)];  % lower bounds
+ub = [3, inf*ones(1,n*6)];      % upper bounds
 
-initPop = [1.7 -1000/n*ones(1,n) zeros(1,n) pi/2*ones(1,n) ...
-    -150/n*ones(1,n) zeros(1,n) pi/2*ones(1,n)];
+initPop = [0.5 1500/n*ones(1,n) zeros(1,n) pi/2*ones(1,n) ...
+    0/n*ones(1,n) zeros(1,n) pi/2*ones(1,n)];
+% worse initial guess, demonstrate how GA improves
+initPop = [0.5 900/n*ones(1,n) zeros(1,n) pi/2*ones(1,n) ...
+    100/n*ones(1,n) zeros(1,n) pi/2*ones(1,n)];
 
 options = optimoptions('ga', 'Display', 'iter', 'PlotFcn', {@gaplotbestf}, ...
     'OutputFcn', @save_intermediate_states, 'CrossoverFraction', 0.5, ...
-    'PopulationSize', 1000, 'InitialPopulationMatrix', initPop);
+    'PopulationSize', 1000, 'InitialPopulationMatrix', initPop, ...
+    'MaxGenerations', 20);
 
 [x_optim, fval] = ...
     ga(@simulate_brachiation, nvars, A, b, Aeq, beq, lb, ub, nonlcon, options);
@@ -26,31 +30,9 @@ function [state, options, optchanged] = save_intermediate_states(options, state,
     generation = state.Generation;
     optchanged = false;
 
-    if mod(generation, 50) == 0
+    if mod(generation, 5) == 0
         [~, ind] = min(state.Score);
         x = state.Population(ind,:);
-        save(['x_' num2str(generation)]);
+        save(['x_gen' num2str(generation)]);
     end
 end
-
-%% Attempt to solve pi_b using GA. Plot best cost and mean cost.
-
-% f = @(x) pi_bf(x);
-% [PI, Orig, Lambda] = geneticAlgorithm(12, 10^-6, 100, 50, 1, f);
-% 
-% for i = 1:size(PI,1)
-%     b_cost(i) = PI(i,1);
-%     p_cost(i) = mean(PI(i,1:12));
-% end
-% 
-% figure
-% plot(p_cost);
-% hold on
-% plot(b_cost);
-% legend('Parent Cost','Best Cost');
-% title('Average Parent Cost vs. Best Cost');
-% xlabel('number of generations');
-% ylabel('cost');
-% print('Tight Tolerance','-dpng');
-% 
-% clear;
