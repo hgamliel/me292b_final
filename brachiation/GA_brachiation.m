@@ -33,6 +33,6 @@ function [state, options, optchanged] = save_intermediate_states(options, state,
     if mod(generation, 25) == 0
         [~, ind] = min(state.Score);
         x = state.Population(ind,:);
-        save(['energy_x_gen' num2str(generation)]);
+        save(['x_gen' num2str(generation)]);
     end
 end

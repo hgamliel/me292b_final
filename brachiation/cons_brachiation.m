@@ -1,9 +1,8 @@
-function [cineq, ceq] = cons_brachiation(x, param_animate)
+function [cineq, ceq] = cons_brachiation(x)
     if nargin == 0
         n = 500;                % points in time
         T_release = 1;          % time of release [s]
         u_array = zeros(n,2);   % input torques
-        param_animate = true;
     else
         T_release = x(1);
         n = round(length(x(2:end))/2);

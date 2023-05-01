@@ -63,7 +63,7 @@ function objcost = obj_brachiation(stance_s, flight_s, flight_t, param)
     
     %% cost function
     a1 = 100; a2 = 0.01; a3 = 1e-5/2;   % cost function weights
-    objcost = a1*dist + a2*flip + a3*u_int;
+    objcost = a1*dist + a2*flip + a3*u_int + abs(flight_s(end,7)) + abs(flight_s(end,8));
 end
 
 % computes input torques from sum of sines
